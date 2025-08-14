@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      bignumber.js:
+        specifier: ^9.3.1
+        version: 9.3.1
       envio:
         specifier: 2.27.1
         version: 2.27.1(typescript@5.2.2)
@@ -168,6 +171,9 @@ packages:
 
   bignumber.js@9.1.2:
     resolution: {integrity: sha512-2/mKyZH9K85bzOEfhXDBFZTGd1CTs+5IHpeFQo9luiBG7hghdC851Pj2WAhb6E3R6b9tZj/XKhbg4fum+Kepug==}
+
+  bignumber.js@9.3.1:
+    resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -820,6 +826,8 @@ snapshots:
   base64-js@1.5.1: {}
 
   bignumber.js@9.1.2: {}
+
+  bignumber.js@9.3.1: {}
 
   binary-extensions@2.3.0: {}
 

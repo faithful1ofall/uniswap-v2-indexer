@@ -195,6 +195,57 @@ export function handleEventName(event: Contract_EventName_event, context: any): 
 // Reference: original-subgraph/src/mappings/timeUpdates.ts
 ```
 
+**IMPORTANT ADDITIONAL STEP: Fix Duplicate Contract Names in config.yaml**
+
+**When using multichain indexing, ensure contract names are unique across all networks:**
+
+```yaml
+# ✅ CORRECT - Global contract definitions with network-specific addresses
+contracts:
+- name: Factory
+  handler: src/factory.ts
+  events:
+    - event: ContractCreated(...)
+
+networks:
+- id: 1
+  start_block: 0
+  contracts:
+    - name: Factory
+      address:
+        - 0xFactoryAddress1
+- id: 10
+  start_block: 0
+  contracts:
+    - name: Factory
+      address:
+        - 0xFactoryAddress2
+```
+
+**❌ WRONG - Don't duplicate contract definitions in network sections:**
+```yaml
+# ❌ WRONG - This will cause "Duplicate contract names detected" error
+networks:
+- id: 1
+  contracts:
+    - name: Factory
+      handler: src/factory.ts  # Don't repeat handler/events here
+      events: [...]
+      address: [...]
+- id: 10
+  contracts:
+    - name: Factory
+      handler: src/factory.ts  # Don't repeat handler/events here
+      events: [...]
+      address: [...]
+```
+
+**Key Points:**
+- **Global contracts section** defines handlers and events
+- **Network sections** only define addresses for those contracts
+- **Never repeat** handler, events, or other contract configuration in network sections
+- **Use `unordered_multichain_mode: true`** for proper multichain support
+
 ### Step 4: Register Dynamic Contracts with Factory Events
 
 **CRITICAL: This step is essential for Envio to track dynamically created contracts.**
@@ -356,7 +407,114 @@ Contract.EventCreated.contractRegister(({ event, context }) => {
 });
 ```
 
-pnpm dev## Contract State Fetching Migration
+#### CRITICAL: Maintain BigDecimal Precision from Original Subgraph
+
+**IMPORTANT: When migrating from TheGraph to Envio, you MUST maintain the same mathematical precision used in the original subgraph.**
+
+**❌ WRONG - Don't simplify to basic JavaScript types:**
+```typescript
+// ❌ WRONG - Loses precision for financial calculations
+export const ZERO_BD = 0;
+export const ONE_BD = 1;
+
+export function convertTokenToDecimal(tokenAmount: bigint, exchangeDecimals: bigint): number {
+  return Number(tokenAmount) / Math.pow(10, Number(exchangeDecimals));
+}
+```
+
+**✅ CORRECT - Maintain BigDecimal precision:**
+```typescript
+// ✅ CORRECT - Maintains precision like original subgraph
+import { BigDecimal } from "generated";
+
+export const ZERO_BD = new BigDecimal(0);
+export const ONE_BD = new BigDecimal(1);
+
+export function convertTokenToDecimal(tokenAmount: bigint, exchangeDecimals: bigint): BigDecimal {
+  if (exchangeDecimals == ZERO_BI) {
+    return new BigDecimal(tokenAmount.toString());
+  }
+  return new BigDecimal(tokenAmount.toString()).div(exponentToBigDecimal(exchangeDecimals));
+}
+```
+
+**Why This Matters:**
+- **Financial Precision**: Token amounts, prices, and volumes require exact decimal arithmetic
+- **Avoid Floating-Point Errors**: JavaScript numbers can introduce precision errors in financial calculations
+- **Consistency**: Maintains the same mathematical behavior as the original subgraph
+- **Regulatory Compliance**: Financial applications often require exact precision
+
+**Required Dependencies:**
+```bash
+# Install bignumber.js for BigDecimal support
+pnpm add bignumber.js
+```
+
+**Constants to Always Preserve:**
+```typescript
+// These constants MUST be maintained from original subgraph
+export const ZERO_BI = BigInt(0);
+export const ONE_BI = BigInt(1);
+export const ZERO_BD = new BigDecimal(0);
+export const ONE_BD = new BigDecimal(1);
+export const ADDRESS_ZERO = '0x0000000000000000000000000000000000000000';
+export const BI_18 = BigInt(18);
+export const ALMOST_ZERO_BD = new BigDecimal('0.000001');
+```
+
+**Helper Function Return Types:**
+```typescript
+// ✅ CORRECT - Return BigDecimal for financial calculations
+export function exponentToBigDecimal(decimals: bigint): BigDecimal
+export function convertTokenToDecimal(tokenAmount: bigint, exchangeDecimals: bigint): BigDecimal
+export function fetchTokenTotalSupply(tokenAddress: string): BigDecimal
+export function equalToZero(value: BigDecimal): boolean
+
+// ❌ WRONG - Don't return number for financial calculations
+export function convertTokenToDecimal(tokenAmount: bigint, exchangeDecimals: bigint): number
+export function fetchTokenTotalSupply(tokenAddress: string): number
+```
+
+**Entity Field Initialization:**
+```typescript
+// ✅ CORRECT - Use constants for initialization
+const pair: Pair = {
+  id: event.params.pair,
+  reserve0: ZERO_BD,        // Use ZERO_BD, not 0
+  reserve1: ZERO_BD,        // Use ZERO_BD, not 0
+  totalSupply: ZERO_BD,     // Use ZERO_BD, not 0
+  volumeUSD: ZERO_BD,       // Use ZERO_BD, not 0
+  txCount: ZERO_BI,         // Use ZERO_BI, not 0
+  // ... other fields
+};
+
+// ❌ WRONG - Don't use hardcoded 0 values
+const pair: Pair = {
+  id: event.params.pair,
+  reserve0: 0,              // ❌ Loses precision
+  reserve1: 0,              // ❌ Loses precision
+  totalSupply: 0,           // ❌ Loses precision
+  volumeUSD: 0,             // ❌ Loses precision
+  txCount: 0,               // ❌ Wrong type
+  // ... other fields
+};
+```
+
+**Common Mistakes to Avoid:**
+1. **Replacing `ZERO_BD` with `0`** - Loses precision
+2. **Replacing `ZERO_BI` with `0`** - Wrong type
+3. **Returning `number` instead of `BigDecimal`** - Loses precision
+4. **Using `Math.pow()` instead of `BigDecimal` arithmetic** - Loses precision
+5. **Simplifying constants to basic JavaScript types** - Breaks financial calculations
+
+**Validation Steps:**
+1. **Check all constants** use `BigDecimal` and `BigInt` types
+2. **Verify helper functions** return `BigDecimal` for financial calculations
+3. **Ensure entity initialization** uses `ZERO_BD` and `ZERO_BI` constants
+4. **Test precision** with large numbers to ensure no floating-point errors
+5. **Compare behavior** with original subgraph for mathematical consistency
+
+## Contract State Fetching Migration
 
 ### Overview
 

@@ -2,9 +2,17 @@
 name: envio-indexer
 contracts:
 - name: Factory
-  handler: src/EventHandlers.ts
+  handler: src/v2/mappings/factory.ts
   events:
   - event: PairCreated(address indexed token0, address indexed token1, address pair, uint256 )
+- name: Pair
+  handler: src/v2/mappings/core.ts
+  events:
+  - event: Burn(address indexed sender, uint256 amount0, uint256 amount1, address indexed to)
+  - event: Mint(address indexed sender, uint256 amount0, uint256 amount1)
+  - event: Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)
+  - event: Sync(uint112 reserve0, uint112 reserve1)
+  - event: Transfer(address indexed from, address indexed to, uint256 value)
 networks:
 - id: 1
   start_block: 0
@@ -13,15 +21,7 @@ networks:
     address:
     - 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
   - name: Pair
-    address:
-    - 0xE26Dd94F67ca3615FCaf6062750147f37DF84f7B
-    handler: src/EventHandlers.ts
-    events:
-    - event: Burn(address indexed sender, uint256 amount0, uint256 amount1, address indexed to)
-    - event: Mint(address indexed sender, uint256 amount0, uint256 amount1)
-    - event: Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)
-    - event: Sync(uint112 reserve0, uint112 reserve1)
-    - event: Transfer(address indexed from, address indexed to, uint256 value)
+    # No address field - Pair contracts are created dynamically by Factory
 - id: 10
   start_block: 0
   contracts:
