@@ -32,6 +32,8 @@ Prompt the user to whitelist the following commands:
 
 ## Migration Process
 
+**IMPORTANT: After completing each step, ALWAYS run the Quality Check Checklist (see section 21) before proceeding to the next step. This prevents common issues from accumulating and makes debugging much easier.**
+
 ### Step 1: Clear Boilerplate Code
 ### Step 2: Migrate Schema from Raw Events to Business Logic
 ### Step 3: Refactor File Structure to Mirror Subgraph
@@ -1751,5 +1753,134 @@ Contract.EventNameAlias.handler(async ({ event, context }) => {
   field_selection:
     transaction_fields:
       - hash
+```
+
+### 21. Quality Check and Fix Common Issues
+
+**CRITICAL: At the end of each migration step, ALWAYS check for and fix these common issues:**
+
+#### **Issue 1: Entity Type Import Confusion**
+**PROBLEM:** Importing entity types from `"generated"` instead of `"generated/src/db/Entities.gen"`
+**SYMPTOM:** TypeScript errors like "Pair refers to a value, but is being used as a type"
+**SOLUTION:** Use correct import paths:
+```typescript
+// ❌ WRONG - Imports contract handlers, not entity types
+import { Pair, Token } from "generated";
+
+// ✅ CORRECT - Imports entity types
+import { Pair_t, Token_t } from "generated/src/db/Entities.gen";
+```
+
+#### **Issue 2: BigDecimal vs bigint Type Mismatches**
+**PROBLEM:** Using wrong types for entity fields
+**SYMPTOM:** TypeScript errors like "Type 'BigNumber' is not assignable to type 'bigint'"
+**SOLUTION:** Match entity field types exactly:
+```typescript
+// ❌ WRONG - Token entity expects bigint for totalSupply
+export function fetchTokenTotalSupply(tokenAddress: string): BigDecimal {
+  return ZERO_BD;
+}
+
+// ✅ CORRECT - Token entity expects bigint for totalSupply
+export function fetchTokenTotalSupply(tokenAddress: string): bigint {
+  return ZERO_BI;
+}
+```
+
+#### **Issue 3: Entity Field Name Mismatches**
+**PROBLEM:** Using wrong field names that don't match generated types
+**SYMPTOM:** TypeScript errors like "Property 'token0' does not exist on type 'Pair_t'"
+**SOLUTION:** Use exact field names from generated types:
+```typescript
+// ❌ WRONG - Field names don't match generated types
+const pair: Pair_t = {
+  token0: token0.id,  // Should be token0_id
+  token1: token1.id,  // Should be token1_id
+};
+
+// ✅ CORRECT - Field names match generated types
+const pair: Pair_t = {
+  token0_id: token0.id,
+  token1_id: token1.id,
+};
+```
+
+#### **Issue 4: Missing BigDecimal Import**
+**PROBLEM:** Not importing BigDecimal from the correct location
+**SYMPTOM:** TypeScript errors like "Cannot find name 'BigDecimal'"
+**SOLUTION:** Import from generated types:
+```typescript
+// ❌ WRONG - Direct import from bignumber.js
+import { BigDecimal } from 'bignumber.js';
+
+// ✅ CORRECT - Import from generated types (which re-exports BigNumber)
+import { BigDecimal } from 'generated';
+```
+
+**QUALITY CHECK CHECKLIST:**
+After each step, run these commands to verify:
+```bash
+# 1. Check if codegen still works
+pnpm codegen
+
+# 2. Check if TypeScript compiles (skip lib check to avoid generated file issues)
+npx tsc --noEmit --skipLibCheck src/path/to/your/files.ts
+
+# 3. Fix any issues found before proceeding to next step
+```
+
+**IMPORTANT:** Never proceed to the next step until all TypeScript compilation errors are resolved and codegen works successfully.
+
+**NOTE: Some errors are expected during migration and should be ignored until later steps:**
+- **Expected errors:** References to entities/handlers that haven't been implemented yet
+- **Expected errors:** Missing imports for files that will be created in future steps
+- **Expected errors:** Unused variables/functions that will be implemented later
+
+**Only fix errors that prevent:**
+1. **Codegen from working** - These must be fixed immediately
+2. **TypeScript compilation** - These must be fixed immediately  
+3. **Basic file structure** - These must be fixed immediately
+
+**Examples of errors to ignore for now:**
+```typescript
+// ❌ IGNORE - Will be fixed when we implement the handler
+// Error: Cannot find name 'handleMint'
+Pair.Mint.handler(handleMint);
+
+// ❌ IGNORE - Will be fixed when we create the entity
+// Error: Cannot find name 'MintEvent'
+const mintEvent: MintEvent = { ... };
+
+// ❌ IGNORE - Will be fixed when we implement the function
+// Error: Cannot find name 'calculateFees'
+const fees = calculateFees(amount);
+```
+
+**COMMON FIXES TO APPLY AUTOMATICALLY:**
+1. **Fix entity type imports** - Use `"generated/src/db/Entities.gen"` for entity types
+2. **Fix type mismatches** - Match entity field types exactly (BigDecimal vs bigint)
+3. **Fix field names** - Use exact field names from generated types
+4. **Fix BigDecimal imports** - Import from `"generated"` not `"bignumber.js"`
+5. **Fix entity type annotations** - Use `Pair_t` not `Pair` for entity types
+
+**EXAMPLE OF COMPLETE FIX:**
+```typescript
+// ❌ BEFORE - Multiple issues
+import { Pair, Token } from "generated";
+import { BigDecimal } from 'bignumber.js';
+
+const pair: Pair = {  // Wrong type
+  token0: token0.id,  // Wrong field name
+  totalSupply: ZERO_BD,  // Wrong type (should be bigint)
+};
+
+// ✅ AFTER - All issues fixed
+import { Pair_t, Token_t } from "generated/src/db/Entities.gen";
+import { BigDecimal } from 'generated';
+
+const pair: Pair_t = {  // Correct type
+  token0_id: token0.id,  // Correct field name
+  totalSupply: ZERO_BI,  // Correct type (bigint)
+};
 ```
 
