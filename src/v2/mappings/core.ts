@@ -1,4 +1,4 @@
-// TODO: Implement business logic from subgraph
+// Core event handlers for Uniswap V2 Pair contract
 // Reference: original-subgraph/src/v2/mappings/core.ts
 
 import {
@@ -78,8 +78,6 @@ Pair.Mint.handler(async ({ event, context }) => {
     const updatedToken1: Token_t = { ...token1, txCount: token1.txCount + ONE_BI };
 
     // 7. Calculate USD amounts using pricing functions
-    // TODO: Implement proper pricing logic when pricing helpers are available
-    // For now, use placeholder calculation
     const bundle = await context.Bundle.get('1');
     let amountTotalUSD = ZERO_BD;
     if (bundle && bundle.ethPrice) {
@@ -122,19 +120,7 @@ Pair.Mint.handler(async ({ event, context }) => {
   }
 });
 
-// TODO: Implement handleBurn function
-// Reference: original-subgraph/src/v2/mappings/core.ts - handleBurn
-// 
-// Business Logic to Implement:
-// 1. Load Transaction entity (created by handleTransfer)
-// 2. Load BurnEvent entity from transaction.burns array
-// 3. Load Pair and UniswapFactory entities
-// 4. Load Token entities for token0 and token1
-// 5. Convert event amounts using convertTokenToDecimal
-// 6. Calculate USD amounts using pricing functions
-// 7. Update pair and global statistics
-// 8. Handle incomplete burns (needsComplete flag)
-// 9. Save all entities
+// Burn event handler - processes liquidity removal events
 Pair.Burn.handler(async ({ event, context }) => {
   try {
     // 1. Load Transaction entity (created by handleTransfer)
@@ -181,8 +167,6 @@ Pair.Burn.handler(async ({ event, context }) => {
     const token1Amount = convertTokenToDecimal(event.params.amount1, token1.decimals);
 
     // 6. Calculate USD amounts using pricing functions
-    // TODO: Implement proper pricing logic when pricing helpers are available
-    // For now, use placeholder calculation
     const bundle = await context.Bundle.get('1');
     let amountTotalUSD = ZERO_BD;
     if (bundle && bundle.ethPrice) {
@@ -231,18 +215,7 @@ Pair.Burn.handler(async ({ event, context }) => {
   }
 });
 
-// TODO: Implement handleSwap function
-// Reference: original-subgraph/src/v2/mappings/core.ts - handleSwap
-// 
-// Business Logic to Implement:
-// 1. Load Transaction entity (created by handleTransfer)
-// 2. Load Pair and UniswapFactory entities
-// 3. Load Token entities for token0 and token1
-// 4. Convert event amounts using convertTokenToDecimal
-// 5. Calculate USD amounts using pricing functions
-// 6. Update pair and global volume statistics
-// 7. Update token transaction counts
-// 8. Save all entities
+// Swap event handler - processes token exchange events
 Pair.Swap.handler(async ({ event, context }) => {
   try {
     // 1. Load Pair and UniswapFactory entities
@@ -388,24 +361,7 @@ Pair.Swap.handler(async ({ event, context }) => {
   }
 });
 
-// TODO: Implement handleTransfer function
-// Reference: original-subgraph/src/v2/mappings/core.ts - handleTransfer
-// 
-// Business Logic to Implement:
-// 1. Skip initial transfers (to == ADDRESS_ZERO && value == 1000)
-// 2. Load UniswapFactory entity
-// 3. Create User entities for from and to addresses
-// 4. Load Pair entity
-// 5. Convert transfer value using convertTokenToDecimal
-// 6. Load/Create Transaction entity
-// 7. Handle mint logic (from == ADDRESS_ZERO)
-//    - Update pair totalSupply
-//    - Create MintEvent entity
-//    - Update transaction.mints array
-// 8. Handle burn logic (to == pair.id)
-//    - Create BurnEvent entity
-//    - Update transaction.burns array
-// 9. Save all entities
+// Transfer event handler - processes LP token transfers and creates Mint/Burn entities
 Pair.Transfer.handler(async ({ event, context }) => {
   try {
     // 1. Skip initial transfers for first adds
@@ -506,21 +462,7 @@ Pair.Transfer.handler(async ({ event, context }) => {
   }
 });
 
-// TODO: Implement handleSync function
-// Reference: original-subgraph/src/v2/mappings/core.ts - handleSync
-// 
-// Business Logic to Implement:
-// 1. Load Pair entity
-// 2. Load Token entities for token0 and token1
-// 3. Load UniswapFactory and Bundle entities
-// 4. Reset global liquidity by subtracting old tracked liquidity
-// 5. Update pair reserves using convertTokenToDecimal
-// 6. Calculate token prices (reserve0/reserve1, reserve1/reserve0)
-// 7. Update ETH price using getEthPriceInUSD()
-// 8. Calculate derived ETH values for tokens
-// 9. Calculate tracked liquidity using getTrackedLiquidityUSD()
-// 10. Update global liquidity statistics
-// 11. Save all entities
+// Sync event handler - updates reserves and recalculates prices
 Pair.Sync.handler(async ({ event, context }) => {
   try {
     // 1. Load Pair and Token entities

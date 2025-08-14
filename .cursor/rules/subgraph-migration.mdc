@@ -1,4 +1,3 @@
-
 # 🚨 MANDATORY: READ THIS FIRST 🚨
 
 **BEFORE implementing ANY code changes, you MUST check this MDC file for existing solutions!**
@@ -2198,4 +2197,102 @@ const factory = await context.UniswapFactory.get('0x5C69bEe701ef814a2B6a3EDD4B16
 // ✅ AFTER - Use constant from original subgraph, consistent and maintainable
 const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
 ```
+
+**A complete migration should pass ALL these checks before being considered production-ready.**
+```
+
+## **22. Final Migration Verification: TODO Cleanup and Logic Verification**
+
+**CRITICAL: This is the final step to ensure migration completeness**
+
+### **Step 1: Comprehensive TODO Scan**
+**Scan every file in your migrated codebase for TODO comments:**
+
+```bash
+# Search for all TODO comments across the codebase
+grep -r "TODO" src/ --include="*.ts" --include="*.tsx"
+grep -r "FIXME" src/ --include="*.ts" --include="*.tsx"
+grep -r "HACK" src/ --include="*.ts" --include="*.tsx"
+```
+
+### **Step 2: TODO Classification and Action**
+**For each TODO found, determine the appropriate action:**
+
+#### **Category A: Already Implemented**
+- **Symptom:** TODO references functionality that exists elsewhere
+- **Action:** Remove the TODO comment
+- **Example:** `// TODO: Implement fetchTokenSymbol` when the function exists
+
+#### **Category B: Not Yet Implemented**
+- **Symptom:** TODO references functionality that's missing
+- **Action:** Implement the missing functionality
+- **Priority:** High - must be completed before migration is done
+
+#### **Category C: Future Enhancement**
+- **Symptom:** TODO references optional features not in original subgraph
+- **Action:** Document as future work, don't block migration
+- **Example:** `// TODO: Add monitoring and alerting`
+
+### **Step 3: Logic Comparison with Original Subgraph**
+**For each function, compare with the original subgraph implementation:**
+
+#### **Check These Areas:**
+1. **Function signature** - Parameters, return types, async/await
+2. **Core business logic** - All conditional branches, calculations
+3. **Error handling** - Try/catch blocks, null checks, validation
+4. **Entity operations** - Loading, updating, saving entities
+5. **Helper function calls** - All required helper functions called
+6. **Edge cases** - Special conditions, boundary checks
+
+#### **Common Missing Logic:**
+- **Null checks** - Missing validation for loaded entities
+- **Error handling** - Missing try/catch blocks
+- **Edge case handling** - Missing special condition logic
+- **Helper function calls** - Missing calls to required functions
+- **Entity updates** - Missing field updates or saves
+
+### **Step 4: Implementation Order**
+**Implement missing functionality in dependency order:**
+
+1. **Base functions first** - Functions with no dependencies
+2. **Helper functions** - Functions used by handlers
+3. **Handler logic** - Complete event handling logic
+4. **Integration points** - Cross-entity updates and relationships
+
+### **Step 5: Verification Checklist**
+**After cleanup, verify:**
+
+- [ ] **No TODO comments remain** in production code
+- [ ] **All functions have complete logic** matching original subgraph
+- [ ] **All edge cases handled** as in original implementation
+- [ ] **All helper functions called** where required
+- **All entities properly updated** and saved
+- [ ] **Error handling complete** for all failure scenarios
+
+### **Example of Complete TODO Cleanup:**
+```typescript
+// ❌ BEFORE - Incomplete implementation with TODO
+export function findEthPerToken(token: any, context: any): BigDecimal {
+  // TODO: Implement complete logic from original subgraph
+  return ZERO_BD;
+}
+
+// ✅ AFTER - Complete implementation matching original
+export function findEthPerToken(token: any, context: any): BigDecimal {
+  if (token.id === REFERENCE_TOKEN) {
+    return ONE_BD;
+  }
+
+  const bundle = context.Bundle.get('1');
+  if (!bundle) {
+    return ZERO_BD;
+  }
+
+  // ... complete implementation matching original subgraph
+}
+```
+
+**This final step ensures your migration is production-ready with no missing functionality.**
+
+
 
