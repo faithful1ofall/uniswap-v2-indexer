@@ -22,7 +22,8 @@ import {
 import { ADDRESS_ZERO, ZERO_BD, ZERO_BI, ONE_BI, BI_18, FACTORY_ADDRESS, ALMOST_ZERO_BD } from "../../common/constants";
 import { BigDecimal } from "generated";
 import { convertTokenToDecimal, createUser } from "../../common/helpers";
-import { getTrackedVolumeUSD } from "../../common/pricing";
+import { getTrackedVolumeUSD, getEthPriceInUSD, findEthPerToken, getTrackedLiquidityUSD } from "../../common/pricing";
+import { updatePairDayData, updatePairHourData, updateUniswapDayData, updateTokenDayData, updateTokenHourData } from "../../common/hourDayUpdates";
 
 // Implement handleMint function
 // Reference: original-subgraph/src/v2/mappings/core.ts - handleMint
@@ -107,12 +108,12 @@ Pair.Mint.handler(async ({ event, context }) => {
     context.UniswapFactory.set(updatedFactory);
     context.Mint.set(updatedMint);
 
-    // TODO: Update day entities when hourDayUpdates helpers are implemented
-    // updatePairDayData(pair, event);
-    // updatePairHourData(pair, event);
-    // updateUniswapDayData(event);
-    // updateTokenDayData(token0, event);
-    // updateTokenDayData(token1, event);
+    // Update day entities using hourDayUpdates helpers
+    updatePairDayData(pair, event, context);
+    updatePairHourData(pair, event, context);
+    updateUniswapDayData(event, context);
+    updateTokenDayData(token0, event, context);
+    updateTokenDayData(token1, event, context);
 
     context.log.info(`Processed mint: ${token0Amount} ${token0.symbol} + ${token1Amount} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -216,12 +217,12 @@ Pair.Burn.handler(async ({ event, context }) => {
     context.UniswapFactory.set(updatedFactory);
     context.Burn.set(updatedBurn);
 
-    // TODO: Update day entities when hourDayUpdates helpers are implemented
-    // updatePairDayData(pair, event);
-    // updatePairHourData(pair, event);
-    // updateUniswapDayData(event);
-    // updateTokenDayData(token0, event);
-    // updateTokenDayData(token1, event);
+    // Update day entities using hourDayUpdates helpers
+    updatePairDayData(pair, event, context);
+    updatePairHourData(pair, event, context);
+    updateUniswapDayData(event, context);
+    updateTokenDayData(token0, event, context);
+    updateTokenDayData(token1, event, context);
 
     context.log.info(`Processed burn: ${token0Amount} ${token0.symbol} + ${token1Amount} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -373,12 +374,12 @@ Pair.Swap.handler(async ({ event, context }) => {
     context.UniswapFactory.set(updatedFactory);
     context.Swap.set(swap);
 
-    // TODO: Update day entities when hourDayUpdates helpers are implemented
-    // updatePairDayData(pair, event);
-    // updatePairHourData(pair, event);
-    // updateUniswapDayData(event);
-    // updateTokenDayData(token0, event);
-    // updateTokenDayData(token1, event);
+    // Update day entities using hourDayUpdates helpers
+    updatePairDayData(pair, event, context);
+    updatePairHourData(pair, event, context);
+    updateUniswapDayData(event, context);
+    updateTokenDayData(token0, event, context);
+    updateTokenDayData(token1, event, context);
 
     context.log.info(`Processed swap: ${amount0In} ${token0.symbol} + ${amount1In} ${token1.symbol} -> ${amount0Out} ${token0.symbol} + ${amount1Out} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -521,6 +522,128 @@ Pair.Transfer.handler(async ({ event, context }) => {
 // 10. Update global liquidity statistics
 // 11. Save all entities
 Pair.Sync.handler(async ({ event, context }) => {
-  // TODO: Implement business logic from subgraph
-  // Reference: original-subgraph/src/v2/mappings/core.ts
+  try {
+    // 1. Load Pair and Token entities
+    const pair = await context.Pair.get(event.srcAddress);
+    if (!pair) {
+      context.log.error(`Pair not found for sync event: ${event.srcAddress}`);
+      return;
+    }
+
+    const token0 = await context.Token.get(pair.token0_id);
+    const token1 = await context.Token.get(pair.token1_id);
+    if (!token0 || !token1) {
+      context.log.error(`Token not found for sync event: ${event.srcAddress}`);
+      return;
+    }
+
+    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    if (!factory) {
+      context.log.error(`Factory not found for sync event: ${event.srcAddress}`);
+      return;
+    }
+
+    // 2. Reset factory liquidity by subtracting only tracked liquidity
+    const updatedFactory: UniswapFactory_t = {
+      ...factory,
+      totalLiquidityETH: factory.totalLiquidityETH.minus(pair.trackedReserveETH)
+    };
+
+    // 3. Reset token total liquidity amounts
+    const updatedToken0: Token_t = {
+      ...token0,
+      totalLiquidity: token0.totalLiquidity.minus(pair.reserve0)
+    };
+    const updatedToken1: Token_t = {
+      ...token1,
+      totalLiquidity: token1.totalLiquidity.minus(pair.reserve1)
+    };
+
+    // 4. Update pair reserves and calculate new prices
+    const newReserve0 = convertTokenToDecimal(event.params.reserve0, token0.decimals);
+    const newReserve1 = convertTokenToDecimal(event.params.reserve1, token1.decimals);
+
+    let newToken0Price = ZERO_BD;
+    let newToken1Price = ZERO_BD;
+
+    if (!newReserve1.isEqualTo(ZERO_BD)) {
+      newToken0Price = newReserve0.div(newReserve1);
+    }
+    if (!newReserve0.isEqualTo(ZERO_BD)) {
+      newToken1Price = newReserve1.div(newReserve0);
+    }
+
+    // 5. Update ETH price now that reserves could have changed
+    const bundle = await context.Bundle.get('1');
+    if (!bundle) {
+      context.log.error(`Bundle not found for sync event: ${event.srcAddress}`);
+      return;
+    }
+
+    const newEthPrice = getEthPriceInUSD(context);
+    const updatedBundle: Bundle_t = {
+      ...bundle,
+      ethPrice: newEthPrice
+    };
+
+    // 6. Update token derived ETH values
+    const token0DerivedETH = findEthPerToken(token0, context);
+    const token1DerivedETH = findEthPerToken(token1, context);
+
+    const finalToken0: Token_t = {
+      ...updatedToken0,
+      derivedETH: token0DerivedETH
+    };
+    const finalToken1: Token_t = {
+      ...updatedToken0,
+      derivedETH: token1DerivedETH
+    };
+
+    // 7. Calculate tracked liquidity ETH
+    let trackedLiquidityETH = ZERO_BD;
+    if (!newEthPrice.isEqualTo(ZERO_BD)) {
+      const trackedLiquidityUSD = getTrackedLiquidityUSD(newReserve0, finalToken0, newReserve1, finalToken1, context);
+      trackedLiquidityETH = trackedLiquidityUSD.div(newEthPrice);
+    }
+
+    // 8. Update pair with new reserves and prices
+    const updatedPair: Pair_t = {
+      ...pair,
+      reserve0: newReserve0,
+      reserve1: newReserve1,
+      token0Price: newToken0Price,
+      token1Price: newToken1Price,
+      trackedReserveETH: trackedLiquidityETH,
+      reserveETH: newReserve0.times(token0DerivedETH).plus(newReserve1.times(token1DerivedETH)),
+      reserveUSD: newReserve0.times(token0DerivedETH).plus(newReserve1.times(token1DerivedETH)).times(newEthPrice)
+    };
+
+    // 9. Update global liquidity amounts
+    const finalFactory: UniswapFactory_t = {
+      ...updatedFactory,
+      totalLiquidityETH: updatedFactory.totalLiquidityETH.plus(trackedLiquidityETH),
+      totalLiquidityUSD: updatedFactory.totalLiquidityETH.plus(trackedLiquidityETH).times(newEthPrice)
+    };
+
+    // 10. Now correctly set liquidity amounts for each token
+    const finalToken0WithLiquidity: Token_t = {
+      ...finalToken0,
+      totalLiquidity: finalToken0.totalLiquidity.plus(newReserve0)
+    };
+    const finalToken1WithLiquidity: Token_t = {
+      ...finalToken1,
+      totalLiquidity: finalToken1.totalLiquidity.plus(newReserve1)
+    };
+
+    // 11. Save all entities
+    context.Pair.set(updatedPair);
+    context.UniswapFactory.set(finalFactory);
+    context.Token.set(finalToken0WithLiquidity);
+    context.Token.set(finalToken1WithLiquidity);
+    context.Bundle.set(updatedBundle);
+
+    context.log.info(`Sync processed for pair ${event.srcAddress} - new reserves: ${newReserve0}, ${newReserve1}`);
+  } catch (error) {
+    context.log.error(`Error in handleSync: ${error}`);
+  }
 });

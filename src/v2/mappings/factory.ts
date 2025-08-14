@@ -87,6 +87,9 @@ Factory.PairCreated.handler(async ({ event, context }) => {
         untrackedVolumeUSD: ZERO_BD,
         totalLiquidity: ZERO_BD,
         txCount: ZERO_BI,
+        lastHourArchived: ZERO_BI,
+        lastHourRecorded: ZERO_BI,
+        hourArray: [],
       };
       context.Token.set(token0);
     }
@@ -116,6 +119,9 @@ Factory.PairCreated.handler(async ({ event, context }) => {
         untrackedVolumeUSD: ZERO_BD,
         totalLiquidity: ZERO_BD,
         txCount: ZERO_BI,
+        lastHourArchived: ZERO_BI,
+        lastHourRecorded: ZERO_BI,
+        hourArray: [],
       };
       context.Token.set(token1);
     }

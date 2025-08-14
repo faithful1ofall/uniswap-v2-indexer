@@ -46,6 +46,11 @@ type Token {
   # derived prices
   derivedETH: BigDecimal!
 
+  # hour tracking fields for archiving
+  lastHourArchived: BigInt!
+  lastHourRecorded: BigInt!
+  hourArray: [Int!]!
+
   # derived fields
   tokenDayData: [TokenDayData!]! @derivedFrom(field: "token")
   pairDayDataBase: [PairDayData!]! @derivedFrom(field: "token0")
