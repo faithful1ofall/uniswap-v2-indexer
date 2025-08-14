@@ -50,7 +50,7 @@ Pair.Mint.handler(async ({ event, context }) => {
     }
 
     // 3. Load Pair and UniswapFactory entities
-    const pair = await context.Pair.get(event.srcAddress);
+    const pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
     if (!pair) {
       context.log.error(`Pair not found for mint: ${event.srcAddress}`);
       return;
@@ -144,7 +144,7 @@ Pair.Burn.handler(async ({ event, context }) => {
     }
 
     // 3. Load Pair and UniswapFactory entities
-    const pair = await context.Pair.get(event.srcAddress);
+    const pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
     if (!pair) {
       context.log.error(`Pair not found for burn: ${event.srcAddress}`);
       return;
@@ -224,7 +224,7 @@ Pair.Swap.handler(async ({ event, context }) => {
     const chainId = event.chainId;
     
     // 1. Load Pair and UniswapFactory entities
-    const pair = await context.Pair.get(event.srcAddress);
+    const pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
     if (!pair) {
       context.log.error(`Pair not found for swap: ${event.srcAddress}`);
       return;
@@ -248,17 +248,21 @@ Pair.Swap.handler(async ({ event, context }) => {
     const amount0In = convertTokenToDecimal(event.params.amount0In, token0.decimals);
     const amount1In = convertTokenToDecimal(event.params.amount1In, token1.decimals);
     const amount0Out = convertTokenToDecimal(event.params.amount0Out, token0.decimals);
-    const amount1Out = convertTokenToDecimal(event.params.amount0Out, token1.decimals);
+    const amount1Out = convertTokenToDecimal(event.params.amount1Out, token1.decimals);
 
     // 4. Calculate totals for volume updates
     const amount0Total = amount0Out.plus(amount1In);
     const amount1Total = amount1Out.plus(amount1In);
 
     // 5. Load Bundle for ETH/USD prices
-    const bundle = await context.Bundle.get(`${chainId}-1`);
+    let bundle = await context.Bundle.get(`${chainId}-1`);
     if (!bundle) {
-      context.log.error(`Bundle not found for swap`);
-      return;
+      // Create Bundle entity if it doesn't exist
+      bundle = {
+        id: `${chainId}-1`,
+        ethPrice: ZERO_BD,
+      };
+      context.Bundle.set(bundle);
     }
 
     // 6. Calculate derived amounts for tracking
@@ -370,6 +374,9 @@ Pair.Swap.handler(async ({ event, context }) => {
 // Transfer event handler - processes LP token transfers and creates Mint/Burn entities
 Pair.Transfer.handler(async ({ event, context }) => {
   try {
+    // Get chain ID from event
+    const chainId = event.chainId;
+    
     // 1. Skip initial transfers for first adds
     if (event.params.to === ADDRESS_ZERO && event.params.value === BigInt(1000)) {
       return;
@@ -387,7 +394,7 @@ Pair.Transfer.handler(async ({ event, context }) => {
     createUser(event.params.to, context);
 
     // 4. Load Pair entity
-    const pair = await context.Pair.get(event.srcAddress);
+    const pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
     if (!pair) {
       context.log.error(`Pair not found: ${event.srcAddress}`);
       return;
@@ -397,7 +404,6 @@ Pair.Transfer.handler(async ({ event, context }) => {
     const value = convertTokenToDecimal(event.params.value, BI_18);
 
     // 6. Load/Create Transaction entity
-    const chainId = event.chainId;
     const transactionId = `${chainId}-${event.transaction.hash}`;
     let transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
@@ -426,7 +432,7 @@ Pair.Transfer.handler(async ({ event, context }) => {
         id: mintId,
         transaction_id: transactionId,
         timestamp: BigInt(event.block.timestamp),
-        pair_id: event.srcAddress,
+        pair_id: `${chainId}-${event.srcAddress}`,
         to: event.params.to,
         liquidity: value,
         sender: undefined,
@@ -476,7 +482,7 @@ Pair.Sync.handler(async ({ event, context }) => {
     const chainId = event.chainId;
     
     // 1. Load Pair and Token entities
-    const pair = await context.Pair.get(event.srcAddress);
+    const pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
     if (!pair) {
       context.log.error(`Pair not found for sync event: ${event.srcAddress}`);
       return;
@@ -526,10 +532,14 @@ Pair.Sync.handler(async ({ event, context }) => {
     }
 
     // 5. Update ETH price now that reserves could have changed
-    const bundle = await context.Bundle.get(`${chainId}-1`);
+    let bundle = await context.Bundle.get(`${chainId}-1`);
     if (!bundle) {
-      context.log.error(`Bundle not found for sync event: ${event.srcAddress}`);
-      return;
+      // Create Bundle entity if it doesn't exist
+      bundle = {
+        id: `${chainId}-1`,
+        ethPrice: ZERO_BD,
+      };
+      context.Bundle.set(bundle);
     }
 
     const newEthPrice = getEthPriceInUSD(context);
@@ -547,7 +557,7 @@ Pair.Sync.handler(async ({ event, context }) => {
       derivedETH: token0DerivedETH
     };
     const finalToken1: Token_t = {
-      ...updatedToken0,
+      ...updatedToken1,
       derivedETH: token1DerivedETH
     };
 
@@ -559,6 +569,11 @@ Pair.Sync.handler(async ({ event, context }) => {
     }
 
     // 8. Update pair with new reserves and prices
+    // Calculate reserve ETH values safely, handling potential ZERO_BD values
+    const reserve0ETH = newReserve0.times(token0DerivedETH);
+    const reserve1ETH = newReserve1.times(token1DerivedETH);
+    const totalReserveETH = reserve0ETH.plus(reserve1ETH);
+    
     const updatedPair: Pair_t = {
       ...pair,
       reserve0: newReserve0,
@@ -566,8 +581,8 @@ Pair.Sync.handler(async ({ event, context }) => {
       token0Price: newToken0Price,
       token1Price: newToken1Price,
       trackedReserveETH: trackedLiquidityETH,
-      reserveETH: newReserve0.times(token0DerivedETH).plus(newReserve1.times(token1DerivedETH)),
-      reserveUSD: newReserve0.times(token0DerivedETH).plus(newReserve1.times(token1DerivedETH)).times(newEthPrice)
+      reserveETH: totalReserveETH,
+      reserveUSD: totalReserveETH.times(newEthPrice)
     };
 
     // 9. Update global liquidity amounts

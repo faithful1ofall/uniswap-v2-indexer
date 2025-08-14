@@ -13,11 +13,11 @@ import {
 } from "generated/src/db/Entities.gen";
 import { ZERO_BD, ZERO_BI, FACTORY_ADDRESS } from "../../common/constants";
 import { 
-  fetchTokenDecimals, 
-  fetchTokenName, 
-  fetchTokenSymbol, 
-  fetchTokenTotalSupply 
-} from "../../common/helpers";
+  getTokenDecimals, 
+  getTokenName, 
+  getTokenSymbol, 
+  getTokenTotalSupply 
+} from "../../common/effects";
 
 // Register dynamic Pair contracts with Envio
 Factory.PairCreated.contractRegister(({ event, context }) => {
@@ -62,22 +62,24 @@ Factory.PairCreated.handler(async ({ event, context }) => {
     }
 
     // 3. Load/Create Token entities for token0 and token1
-    let token0 = await context.Token.get(event.params.token0);
+    let token0 = await context.Token.get(`${chainId}-${event.params.token0}`);
     if (!token0) {
-      // Fetch token metadata
-      const symbol0 = await fetchTokenSymbol(event.params.token0);
-      const name0 = await fetchTokenName(event.params.token0);
-      const totalSupply0 = await fetchTokenTotalSupply(event.params.token0);
-      const decimals0 = await fetchTokenDecimals(event.params.token0);
+      // Fetch token metadata using Effect API in parallel for better performance
+      const [symbol0, name0, totalSupply0, decimals0] = await Promise.all([
+        context.effect(getTokenSymbol, event.params.token0),
+        context.effect(getTokenName, event.params.token0),
+        context.effect(getTokenTotalSupply, event.params.token0),
+        context.effect(getTokenDecimals, event.params.token0)
+      ]);
 
       // Bail if we couldn't figure out the decimals
-      if (decimals0 === null) {
-        context.log.debug('mybug the decimal on token 0 was null');
+      if (decimals0 === undefined) {
+        context.log.debug('mybug the decimal on token 0 was undefined');
         return;
       }
 
       token0 = {
-        id: event.params.token0,
+        id: `${chainId}-${event.params.token0}`,
         symbol: symbol0,
         name: name0,
         decimals: decimals0,
@@ -95,21 +97,23 @@ Factory.PairCreated.handler(async ({ event, context }) => {
       context.Token.set(token0);
     }
 
-    let token1 = await context.Token.get(event.params.token1);
+    let token1 = await context.Token.get(`${chainId}-${event.params.token1}`);
     if (!token1) {
-      // Fetch token metadata
-      const symbol1 = await fetchTokenSymbol(event.params.token1);
-      const name1 = await fetchTokenName(event.params.token1);
-      const totalSupply1 = await fetchTokenTotalSupply(event.params.token1);
-      const decimals1 = await fetchTokenDecimals(event.params.token1);
+      // Fetch token metadata using Effect API in parallel for better performance
+      const [symbol1, name1, totalSupply1, decimals1] = await Promise.all([
+        context.effect(getTokenSymbol, event.params.token1),
+        context.effect(getTokenName, event.params.token1),
+        context.effect(getTokenTotalSupply, event.params.token1),
+        context.effect(getTokenDecimals, event.params.token1)
+      ]);
 
       // Bail if we couldn't figure out the decimals
-      if (decimals1 === null) {
+      if (decimals1 === undefined) {
         return;
       }
 
       token1 = {
-        id: event.params.token1,
+        id: `${chainId}-${event.params.token1}`,
         symbol: symbol1,
         name: name1,
         decimals: decimals1,
@@ -129,7 +133,7 @@ Factory.PairCreated.handler(async ({ event, context }) => {
 
     // 4. Create new Pair entity
     const pair: Pair_t = {
-      id: event.params.pair,
+      id: `${chainId}-${event.params.pair}`,
       token0_id: token0.id,
       token1_id: token1.id,
       reserve0: ZERO_BD,
@@ -153,13 +157,13 @@ Factory.PairCreated.handler(async ({ event, context }) => {
 
     // 5. Create PairTokenLookup entities for both token orderings
     const pairLookup0: PairTokenLookup_t = {
-      id: `${event.params.token0}-${event.params.token1}`,
+      id: `${chainId}-${event.params.token0}-${event.params.token1}`,
       pair_id: pair.id,
     };
     context.PairTokenLookup.set(pairLookup0);
 
     const pairLookup1: PairTokenLookup_t = {
-      id: `${event.params.token1}-${event.params.token0}`,
+      id: `${chainId}-${event.params.token1}-${event.params.token0}`,
       pair_id: pair.id,
     };
     context.PairTokenLookup.set(pairLookup1);
