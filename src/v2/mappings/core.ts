@@ -30,7 +30,8 @@ import { updatePairDayData, updatePairHourData, updateUniswapDayData, updateToke
 Pair.Mint.handler(async ({ event, context }) => {
   try {
     // 1. Load Transaction entity (created by handleTransfer)
-    const transactionId = event.transaction.hash;
+    const chainId = event.chainId;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
     const transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
       context.log.error(`Transaction not found for mint: ${transactionId}`);
@@ -41,7 +42,7 @@ Pair.Mint.handler(async ({ event, context }) => {
     // In Envio, @derivedFrom arrays are virtual fields that don't exist in handlers
     // Instead, we query for Mints using their indexed transaction_id field
     // The Mint entity should have been created by the Transfer handler
-    const mintId = `${transactionId}-${event.logIndex}`;
+    const mintId = `${chainId}-${transactionId}-${event.logIndex}`;
     let mint = await context.Mint.get(mintId);
     if (!mint) {
       context.log.error(`Mint entity not found: ${mintId}. This suggests the Transfer handler didn't create it properly.`);
@@ -78,7 +79,7 @@ Pair.Mint.handler(async ({ event, context }) => {
     const updatedToken1: Token_t = { ...token1, txCount: token1.txCount + ONE_BI };
 
     // 7. Calculate USD amounts using pricing functions
-    const bundle = await context.Bundle.get('1');
+    const bundle = await context.Bundle.get(`${chainId}-1`);
     let amountTotalUSD = ZERO_BD;
     if (bundle && bundle.ethPrice) {
       // Simplified USD calculation: (token0.derivedETH * amount0 + token1.derivedETH * amount1) * ethPrice
@@ -107,11 +108,11 @@ Pair.Mint.handler(async ({ event, context }) => {
     context.Mint.set(updatedMint);
 
     // Update day entities using hourDayUpdates helpers
-    updatePairDayData(pair, event, context);
-    updatePairHourData(pair, event, context);
-    updateUniswapDayData(event, context);
-    updateTokenDayData(token0, event, context);
-    updateTokenDayData(token1, event, context);
+    updatePairDayData(pair, event, context, chainId);
+    updatePairHourData(pair, event, context, chainId);
+    updateUniswapDayData(event, context, chainId);
+    updateTokenDayData(token0, event, context, chainId);
+    updateTokenDayData(token1, event, context, chainId);
 
     context.log.info(`Processed mint: ${token0Amount} ${token0.symbol} + ${token1Amount} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -124,7 +125,8 @@ Pair.Mint.handler(async ({ event, context }) => {
 Pair.Burn.handler(async ({ event, context }) => {
   try {
     // 1. Load Transaction entity (created by handleTransfer)
-    const transactionId = event.transaction.hash;
+    const chainId = event.chainId;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
     const transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
       context.log.error(`Transaction not found for burn: ${transactionId}`);
@@ -134,7 +136,7 @@ Pair.Burn.handler(async ({ event, context }) => {
     // 2. Load Burn entity (created by Transfer handler)
     // In Envio, we need to find the Burn entity by looking at the transaction
     // Since we can't access arrays directly, we'll use the same ID pattern as Mint
-    const burnId = `${transactionId}-${event.logIndex}`;
+    const burnId = `${chainId}-${transactionId}-${event.logIndex}`;
     let burn = await context.Burn.get(burnId);
     if (!burn) {
       context.log.error(`Burn entity not found: ${burnId}. This suggests the Transfer handler didn't create it properly.`);
@@ -167,7 +169,7 @@ Pair.Burn.handler(async ({ event, context }) => {
     const token1Amount = convertTokenToDecimal(event.params.amount1, token1.decimals);
 
     // 6. Calculate USD amounts using pricing functions
-    const bundle = await context.Bundle.get('1');
+    const bundle = await context.Bundle.get(`${chainId}-1`);
     let amountTotalUSD = ZERO_BD;
     if (bundle && bundle.ethPrice) {
       // Simplified USD calculation: (token0.derivedETH * amount0 + token1.derivedETH * amount1) * ethPrice
@@ -202,11 +204,11 @@ Pair.Burn.handler(async ({ event, context }) => {
     context.Burn.set(updatedBurn);
 
     // Update day entities using hourDayUpdates helpers
-    updatePairDayData(pair, event, context);
-    updatePairHourData(pair, event, context);
-    updateUniswapDayData(event, context);
-    updateTokenDayData(token0, event, context);
-    updateTokenDayData(token1, event, context);
+    updatePairDayData(pair, event, context, chainId);
+    updatePairHourData(pair, event, context, chainId);
+    updateUniswapDayData(event, context, chainId);
+    updateTokenDayData(token0, event, context, chainId);
+    updateTokenDayData(token1, event, context, chainId);
 
     context.log.info(`Processed burn: ${token0Amount} ${token0.symbol} + ${token1Amount} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -218,6 +220,9 @@ Pair.Burn.handler(async ({ event, context }) => {
 // Swap event handler - processes token exchange events
 Pair.Swap.handler(async ({ event, context }) => {
   try {
+    // Get chain ID from event
+    const chainId = event.chainId;
+    
     // 1. Load Pair and UniswapFactory entities
     const pair = await context.Pair.get(event.srcAddress);
     if (!pair) {
@@ -250,7 +255,7 @@ Pair.Swap.handler(async ({ event, context }) => {
     const amount1Total = amount1Out.plus(amount1In);
 
     // 5. Load Bundle for ETH/USD prices
-    const bundle = await context.Bundle.get('1');
+    const bundle = await context.Bundle.get(`${chainId}-1`);
     if (!bundle) {
       context.log.error(`Bundle not found for swap`);
       return;
@@ -277,7 +282,8 @@ Pair.Swap.handler(async ({ event, context }) => {
       amount1Total,
       token1,
       pair,
-      context
+      context,
+      chainId
     );
     
     let trackedAmountETH = ZERO_BD;
@@ -323,10 +329,10 @@ Pair.Swap.handler(async ({ event, context }) => {
     };
 
     // 12. Create Swap entity
-    const swapId = `${event.transaction.hash}-${event.logIndex}`;
+    const swapId = `${chainId}-${event.transaction.hash}-${event.logIndex}`;
     const swap: Swap_t = {
       id: swapId,
-      transaction_id: event.transaction.hash,
+      transaction_id: `${chainId}-${event.transaction.hash}`,
       timestamp: BigInt(event.block.timestamp),
       pair_id: event.srcAddress,
       sender: event.params.sender,
@@ -348,11 +354,11 @@ Pair.Swap.handler(async ({ event, context }) => {
     context.Swap.set(swap);
 
     // Update day entities using hourDayUpdates helpers
-    updatePairDayData(pair, event, context);
-    updatePairHourData(pair, event, context);
-    updateUniswapDayData(event, context);
-    updateTokenDayData(token0, event, context);
-    updateTokenDayData(token1, event, context);
+    updatePairDayData(pair, event, context, chainId);
+    updatePairHourData(pair, event, context, chainId);
+    updateUniswapDayData(event, context, chainId);
+    updateTokenDayData(token0, event, context, chainId);
+    updateTokenDayData(token1, event, context, chainId);
 
     context.log.info(`Processed swap: ${amount0In} ${token0.symbol} + ${amount1In} ${token1.symbol} -> ${amount0Out} ${token0.symbol} + ${amount1Out} ${token1.symbol} for pair ${event.srcAddress}`);
 
@@ -391,7 +397,8 @@ Pair.Transfer.handler(async ({ event, context }) => {
     const value = convertTokenToDecimal(event.params.value, BI_18);
 
     // 6. Load/Create Transaction entity
-    const transactionId = event.transaction.hash;
+    const chainId = event.chainId;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
     let transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
       transaction = {
@@ -414,7 +421,7 @@ Pair.Transfer.handler(async ({ event, context }) => {
       context.Pair.set(updatedPair);
 
       // Create Mint entity (following original subgraph logic)
-      const mintId = `${transactionId}-${event.logIndex}`;
+      const mintId = `${chainId}-${transactionId}-${event.logIndex}`;
       const mint: Mint_t = {
         id: mintId,
         transaction_id: transactionId,
@@ -465,6 +472,9 @@ Pair.Transfer.handler(async ({ event, context }) => {
 // Sync event handler - updates reserves and recalculates prices
 Pair.Sync.handler(async ({ event, context }) => {
   try {
+    // Get chain ID from event
+    const chainId = event.chainId;
+    
     // 1. Load Pair and Token entities
     const pair = await context.Pair.get(event.srcAddress);
     if (!pair) {
@@ -516,7 +526,7 @@ Pair.Sync.handler(async ({ event, context }) => {
     }
 
     // 5. Update ETH price now that reserves could have changed
-    const bundle = await context.Bundle.get('1');
+    const bundle = await context.Bundle.get(`${chainId}-1`);
     if (!bundle) {
       context.log.error(`Bundle not found for sync event: ${event.srcAddress}`);
       return;
@@ -529,8 +539,8 @@ Pair.Sync.handler(async ({ event, context }) => {
     };
 
     // 6. Update token derived ETH values
-    const token0DerivedETH = findEthPerToken(token0, context);
-    const token1DerivedETH = findEthPerToken(token1, context);
+    const token0DerivedETH = findEthPerToken(token0, context, chainId);
+    const token1DerivedETH = findEthPerToken(token1, context, chainId);
 
     const finalToken0: Token_t = {
       ...updatedToken0,
@@ -544,7 +554,7 @@ Pair.Sync.handler(async ({ event, context }) => {
     // 7. Calculate tracked liquidity ETH
     let trackedLiquidityETH = ZERO_BD;
     if (!newEthPrice.isEqualTo(ZERO_BD)) {
-      const trackedLiquidityUSD = getTrackedLiquidityUSD(newReserve0, finalToken0, newReserve1, finalToken1, context);
+      const trackedLiquidityUSD = getTrackedLiquidityUSD(newReserve0, newReserve1, finalToken0, finalToken1, context, chainId);
       trackedLiquidityETH = trackedLiquidityUSD.div(newEthPrice);
     }
 

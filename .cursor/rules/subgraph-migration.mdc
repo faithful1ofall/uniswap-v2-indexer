@@ -22,6 +22,14 @@
 **NEVER implement a workaround or solution without first checking this MDC file!**
 **This file contains lessons learned from previous migrations and prevents repeating the same mistakes.**
 
+## 🚀 MULTICHAIN INDEXING
+
+**For multichain support:**
+- **Prefix all entity IDs with `event.chainId`**: `${event.chainId}-${originalId}`
+- **Never hardcode `chainId = 1`** - always use `event.chainId`
+- **Update helper functions** to accept `chainId` parameter
+- **Use chain-specific Bundle IDs**: `${chainId}-1` for accurate pricing per network
+
 ## Objective
 
 **IMPORTANT: This is a GENERALIZED migration guide for ANY subgraph to Envio conversion.**

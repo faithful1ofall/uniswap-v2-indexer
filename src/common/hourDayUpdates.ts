@@ -9,7 +9,7 @@ import { BigDecimal } from 'generated';
  * Update Uniswap day data - global daily statistics
  * Creates or updates daily aggregated data for the entire protocol
  */
-export function updateUniswapDayData(event: any, context: any): any {
+export function updateUniswapDayData(event: any, context: any, chainId: number): any {
   // Load factory entity
   const uniswap = context.UniswapFactory.get(FACTORY_ADDRESS);
   if (!uniswap) {
@@ -23,12 +23,12 @@ export function updateUniswapDayData(event: any, context: any): any {
   const dayStartTimestamp = dayID * 86400;
 
   // Try to load existing day data
-  let uniswapDayData = context.UniswapDayData.get(dayID.toString());
+  let uniswapDayData = context.UniswapDayData.get(`${chainId}-${dayID}`);
   
   if (!uniswapDayData) {
     // Create new day data entity
     uniswapDayData = {
-      id: dayID.toString(),
+      id: `${chainId}-${dayID}`,
       date: dayStartTimestamp,
       dailyVolumeETH: ZERO_BD,
       dailyVolumeUSD: ZERO_BD,
@@ -56,14 +56,14 @@ export function updateUniswapDayData(event: any, context: any): any {
  * Update pair day data - daily statistics for specific pairs
  * Creates or updates daily aggregated data for individual trading pairs
  */
-export function updatePairDayData(pair: any, event: any, context: any): any {
+export function updatePairDayData(pair: any, event: any, context: any, chainId: number): any {
   // Calculate day ID and timestamp
   const timestamp = event.block.timestamp;
   const dayID = Math.floor(Number(timestamp) / 86400);
   const dayStartTimestamp = dayID * 86400;
   
   // Create unique ID for pair-day combination
-  const dayPairID = event.srcAddress.concat('-').concat(dayID.toString());
+  const dayPairID = `${chainId}-${event.srcAddress}-${dayID}`;
   
   // Try to load existing day data
   let pairDayData = context.PairDayData.get(dayPairID);
@@ -104,14 +104,14 @@ export function updatePairDayData(pair: any, event: any, context: any): any {
  * Update pair hour data - hourly statistics for specific pairs
  * Creates or updates hourly aggregated data for individual trading pairs
  */
-export function updatePairHourData(pair: any, event: any, context: any): any {
+export function updatePairHourData(pair: any, event: any, context: any, chainId: number): any {
   // Calculate hour index and timestamp
   const timestamp = event.block.timestamp;
   const hourIndex = Math.floor(Number(timestamp) / 3600); // get unique hour within unix history
   const hourStartUnix = hourIndex * 3600; // want the rounded effect
   
   // Create unique ID for pair-hour combination
-  const hourPairID = event.srcAddress.concat('-').concat(hourIndex.toString());
+  const hourPairID = `${chainId}-${event.srcAddress}-${hourIndex}`;
   
   // Try to load existing hour data
   let pairHourData = context.PairHourData.get(hourPairID);
@@ -150,9 +150,9 @@ export function updatePairHourData(pair: any, event: any, context: any): any {
  * Update token day data - daily statistics for specific tokens
  * Creates or updates daily aggregated data for individual tokens
  */
-export function updateTokenDayData(token: any, event: any, context: any): any {
+export function updateTokenDayData(token: any, event: any, context: any, chainId: number): any {
   // Load bundle for ETH price
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle) {
     context.log.error('Bundle not found for updateTokenDayData');
     return null;
@@ -164,7 +164,7 @@ export function updateTokenDayData(token: any, event: any, context: any): any {
   const dayStartTimestamp = dayID * 86400;
   
   // Create unique ID for token-day combination
-  const tokenDayID = token.id.concat('-').concat(dayID.toString());
+  const tokenDayID = `${chainId}-${token.id}-${dayID}`;
   
   // Try to load existing day data
   let tokenDayData = context.TokenDayData.get(tokenDayID);
@@ -203,9 +203,9 @@ export function updateTokenDayData(token: any, event: any, context: any): any {
  * Update token hour data - hourly statistics for specific tokens
  * Creates or updates hourly aggregated data for individual tokens
  */
-export function updateTokenHourData(token: any, event: any, context: any): any {
+export function updateTokenHourData(token: any, event: any, context: any, chainId: number): any {
   // Load bundle for ETH price
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle) {
     context.log.error('Bundle not found for updateTokenHourData');
     return null;
@@ -217,7 +217,7 @@ export function updateTokenHourData(token: any, event: any, context: any): any {
   const hourStartUnix = hourIndex * 3600; // want the rounded effect
   
   // Create unique ID for token-hour combination
-  const tokenHourID = token.id.concat('-').concat(hourIndex.toString());
+  const tokenHourID = `${chainId}-${token.id}-${hourIndex}`;
   
   // Try to load existing hour data
   let tokenHourData = context.TokenHourData.get(tokenHourID);
@@ -275,7 +275,7 @@ export function updateTokenHourData(token: any, event: any, context: any): any {
     const lastHourArchived = Number(token.lastHourArchived);
     const stop = hourIndex - 768; // Archive data older than 768 hours (32 days)
     if (stop > lastHourArchived) {
-      archiveHourData(token, stop, context);
+      archiveHourData(token, stop, context, chainId);
     }
     token.lastHourRecorded = BigInt(hourIndex);
     
@@ -296,7 +296,7 @@ export function updateTokenHourData(token: any, event: any, context: any): any {
  * Archive old hour data to prevent database bloat
  * Removes TokenHourData entities older than the specified hour
  */
-function archiveHourData(token: any, end: number, context: any): void {
+function archiveHourData(token: any, end: number, context: any, chainId: number): void {
   if (!token.hourArray || token.hourArray.length === 0) {
     return;
   }
@@ -310,7 +310,7 @@ function archiveHourData(token: any, end: number, context: any): void {
       break;
     }
     
-    const tokenHourID = token.id.concat('-').concat(array[i].toString());
+    const tokenHourID = `${chainId}-${token.id}-${array[i]}`;
     
     // Remove the old TokenHourData entity
     // Note: In Envio, we can't directly remove entities like in TheGraph

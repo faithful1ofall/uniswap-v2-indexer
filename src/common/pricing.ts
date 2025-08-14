@@ -64,9 +64,10 @@ export function getTrackedVolumeUSD(
   tokenAmount1: BigDecimal,
   token1: any,
   pair: any,
-  context: any
+  context: any,
+  chainId: number
 ): BigDecimal {
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle || !bundle.ethPrice) {
     return ZERO_BD;
   }
@@ -97,12 +98,13 @@ export function getTrackedVolumeUSD(
  */
 export function getTrackedLiquidityUSD(
   tokenAmount0: BigDecimal,
-  token0: any,
   tokenAmount1: BigDecimal,
+  token0: any,
   token1: any,
-  context: any
+  context: any,
+  chainId: number
 ): BigDecimal {
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle || !bundle.ethPrice) {
     return ZERO_BD;
   }
@@ -123,9 +125,10 @@ export function getTokenTrackedLiquidityUSD(
   tokenForPricingAmount: BigDecimal,
   companionTokenAmount: BigDecimal,
   companionToken: any,
-  context: any
+  context: any,
+  chainId: number
 ): BigDecimal {
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle || !bundle.ethPrice) {
     return ZERO_BD;
   }
@@ -143,13 +146,13 @@ export function getTokenTrackedLiquidityUSD(
  * Implements the complete logic from original subgraph using WHITELIST for pricing accuracy
  * Uses PairTokenLookup entities to find reliable pricing sources
  */
-export function findEthPerToken(token: any, context: any): BigDecimal {
+export function findEthPerToken(token: any, context: any, chainId: number): BigDecimal {
   if (token.id === REFERENCE_TOKEN) {
     return ONE_BD;
   }
 
   // Load bundle for ETH price
-  const bundle = context.Bundle.get('1');
+  const bundle = context.Bundle.get(`${chainId}-1`);
   if (!bundle) {
     return ZERO_BD;
   }

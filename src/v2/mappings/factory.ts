@@ -51,10 +51,11 @@ Factory.PairCreated.handler(async ({ event, context }) => {
     context.UniswapFactory.set(updatedFactory);
 
     // 2. Load/Create Bundle entity (id: '1')
-    let bundle = await context.Bundle.get('1');
+    const chainId = event.chainId;
+    let bundle = await context.Bundle.get(`${chainId}-1`);
     if (!bundle) {
       bundle = {
-        id: '1',
+        id: `${chainId}-1`,
         ethPrice: ZERO_BD,
       };
       context.Bundle.set(bundle);
