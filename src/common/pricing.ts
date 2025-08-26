@@ -51,11 +51,11 @@ export async function getEthPriceInUSD(context: any, chainId: number): Promise<B
       stableTokenIsToken0[i] = stableTokenPair.token1_id === `${chainId}-${REFERENCE_TOKEN}`;
       if (stableTokenIsToken0[i]) {
         stableTokenReserves[i] = stableTokenPair.reserve1;
-        stableTokenPrices[i] = stableTokenPair.token1Price;
+        stableTokenPrices[i] = stableTokenPair.token0Price;  // Fixed: use token0Price when token1 is REFERENCE_TOKEN
         totalLiquidityETH = totalLiquidityETH.plus(stableTokenPair.reserve1);
       } else {
         stableTokenReserves[i] = stableTokenPair.reserve0;
-        stableTokenPrices[i] = stableTokenPair.token0Price;
+        stableTokenPrices[i] = stableTokenPair.token1Price;  // Fixed: use token1Price when token0 is REFERENCE_TOKEN
         totalLiquidityETH = totalLiquidityETH.plus(stableTokenPair.reserve0);
       }
     }

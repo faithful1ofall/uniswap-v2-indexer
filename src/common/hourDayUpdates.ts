@@ -139,6 +139,7 @@ export async function updatePairHourData(
   pairHourData.reserve0 = pair.reserve0;
   pairHourData.reserve1 = pair.reserve1;
   pairHourData.reserveUSD = pair.reserveUSD;
+  
   pairHourData.hourlyTxns = pairHourData.hourlyTxns + ONE_BI;
   context.PairHourData.set(pairHourData);
 
@@ -182,6 +183,7 @@ export async function updateTokenDayData(
   tokenDayData.totalLiquidityToken = token.totalLiquidity;
   tokenDayData.totalLiquidityETH = token.totalLiquidity * token.derivedETH;
   tokenDayData.totalLiquidityUSD = tokenDayData.totalLiquidityETH * bundle.ethPrice;
+  
   tokenDayData.dailyTxns = tokenDayData.dailyTxns + ONE_BI; // Use ONE_BI constant instead of BigInt(1)
   context.TokenDayData.set(tokenDayData);
 
