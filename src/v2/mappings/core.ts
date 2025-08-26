@@ -16,7 +16,6 @@ import {
   PairDayData_t,
   TokenDayData_t,
   PairHourData_t,
-  TokenHourData_t,
   UniswapDayData_t,
   User_t,
 } from "generated/src/db/Entities.gen";
@@ -25,7 +24,7 @@ import { getFactoryAddress } from "../../common/chainConfig";
 import { BigDecimal } from "generated";
 import { convertTokenToDecimal, createUser } from "../../common/helpers";
 import { getTrackedVolumeUSD, getEthPriceInUSD, findEthPerToken, getTrackedLiquidityUSD } from "../../common/pricing";
-import { updatePairDayData, updatePairHourData, updateUniswapDayData, updateTokenDayData, updateTokenHourData } from "../../common/hourDayUpdates";
+import { updatePairDayData, updatePairHourData, updateUniswapDayData, updateTokenDayData } from "../../common/hourDayUpdates";
 
 // Helper function to check if a mint is complete (matches subgraph logic)
 function isCompleteMint(mint: Mint_t): boolean {
@@ -255,9 +254,12 @@ Pair.Mint.handler(async ({ event, context }) => {
 
     // 2. Load existing Mint entity (created by handleTransfer)
     // Note: In the subgraph, this loads from transaction.mints[mints.length - 1]
-    // Since we can't access the array directly, we'll use a simplified approach
-    const mintId = `${transactionId}-0`;
-    const mint = await context.Mint.get(mintId);
+    // Since we can't access the array directly due to @derivedFrom, we'll use getWhere to simulate array behavior
+    const existingMints = await context.Mint.getWhere.transaction_id.eq(transactionId);
+    if (existingMints.length === 0) {
+      return; // No mints found
+    }
+    const mint = existingMints[existingMints.length - 1]; // Get last mint (matches subgraph logic)
     if (!mint) {
       return;
     }
@@ -348,8 +350,6 @@ Pair.Mint.handler(async ({ event, context }) => {
       await updateUniswapDayData(event, context, String(chainId));
       await updateTokenDayData(updatedToken0, event, context, String(chainId));
       await updateTokenDayData(updatedToken1, event, context, String(chainId));
-      await updateTokenHourData(updatedToken0, event, context, String(chainId));
-      await updateTokenHourData(updatedToken1, event, context, String(chainId));
     }
 
   } catch (error) {
@@ -372,9 +372,12 @@ Pair.Burn.handler(async ({ event, context }) => {
 
     // 2. Load existing Burn entity (created by handleTransfer)
     // Note: In the subgraph, this loads from transaction.burns[burns.length - 1]
-    // Since we can't access the array directly, we'll use a simplified approach
-    const burnId = `${transactionId}-0`;
-    const burn = await context.Burn.get(burnId);
+    // Since we can't access the array directly due to @derivedFrom, we'll use getWhere to simulate array behavior
+    const existingBurns = await context.Burn.getWhere.transaction_id.eq(transactionId);
+    if (existingBurns.length === 0) {
+      return; // No burns found
+    }
+    const burn = existingBurns[existingBurns.length - 1]; // Get last burn (matches subgraph logic)
     if (!burn) {
       return;
     }
@@ -464,8 +467,6 @@ Pair.Burn.handler(async ({ event, context }) => {
       await updateUniswapDayData(event, context, String(chainId));
       await updateTokenDayData(updatedToken0, event, context, String(chainId));
       await updateTokenDayData(updatedToken1, event, context, String(chainId));
-      await updateTokenHourData(updatedToken0, event, context, String(chainId));
-      await updateTokenHourData(updatedToken1, event, context, String(chainId));
     }
 
   } catch (error) {
@@ -507,34 +508,20 @@ Pair.Swap.handler(async ({ event, context }) => {
     const amount0Out = convertTokenToDecimal(event.params.amount0Out, BigInt(token0.decimals));
     const amount1Out = convertTokenToDecimal(event.params.amount1Out, BigInt(token1.decimals));
 
-    // 4. Update pair reserves
-    const reserve0 = pair.reserve0.plus(amount0In).minus(amount0Out);
-    const reserve1 = pair.reserve1.plus(amount1In).minus(amount1Out);
-
-    // 5. Calculate volume and fees
-    const volume0 = amount0In.plus(amount0Out);
-    const volume1 = amount1In.plus(amount1Out);
-
-    // 6. Update pair entity with basic volume
-    pair = {
-      ...pair,
-      reserve0: reserve0,
-      reserve1: reserve1,
-      volumeToken0: pair.volumeToken0.plus(volume0),
-      volumeToken1: pair.volumeToken1.plus(volume1),
-      txCount: pair.txCount + ONE_BI,
-    };
+    // 4. Calculate totals for volume updates (matches subgraph exactly)
+    const amount0Total = amount0Out.plus(amount0In);
+    const amount1Total = amount1Out.plus(amount1In);
 
     // 7. Update token entities with basic volume
     const updatedToken0: Token_t = {
       ...token0,
-      tradeVolume: token0.tradeVolume.plus(volume0),
+      tradeVolume: token0.tradeVolume.plus(amount0Total),
       txCount: token0.txCount + ONE_BI,
     };
 
     const updatedToken1: Token_t = {
       ...token1,
-      tradeVolume: token1.tradeVolume.plus(volume1),
+      tradeVolume: token1.tradeVolume.plus(amount1Total),
       txCount: token1.txCount + ONE_BI,
     };
 
@@ -543,17 +530,24 @@ Pair.Swap.handler(async ({ event, context }) => {
     let finalToken0: Token_t | undefined;
     let finalToken1: Token_t | undefined;
     let trackedAmountUSD = ZERO_BD;
+    let trackedAmountETH = ZERO_BD;
     let derivedAmountUSD = ZERO_BD;
     let derivedAmountETH = ZERO_BD;
     
-    if (bundle && bundle.ethPrice && bundle.ethPrice.isGreaterThan(ZERO_BD)) {
-      // Calculate tracked volume (whitelist-based)
-      trackedAmountUSD = await getTrackedVolumeUSD(volume0, token0, volume1, token1, pair, context, Number(chainId));
-      const trackedAmountETH = trackedAmountUSD.div(bundle.ethPrice);
+    if (bundle) {
+      // Calculate tracked volume (whitelist-based) - always calculate this
+      trackedAmountUSD = await getTrackedVolumeUSD(amount0Total, token0, amount1Total, token1, pair, context, Number(chainId));
+      
+      // Calculate tracked amount in ETH - handle case when ethPrice is 0
+      if (bundle.ethPrice && bundle.ethPrice.isGreaterThan(ZERO_BD)) {
+        trackedAmountETH = trackedAmountUSD.div(bundle.ethPrice);
+      } else {
+        trackedAmountETH = ZERO_BD;
+      }
 
       // Calculate derived amounts (all volume converted to USD)
-      const derivedEthToken1 = token1.derivedETH.times(volume1);
-      const derivedEthToken0 = token0.derivedETH.times(volume0);
+      const derivedEthToken1 = token1.derivedETH.times(amount1Total);
+      const derivedEthToken0 = token0.derivedETH.times(amount0Total);
       
       // If any side is 0, don't divide by 2
       if (derivedEthToken0.isLessThanOrEqualTo(ALMOST_ZERO_BD) || derivedEthToken1.isLessThanOrEqualTo(ALMOST_ZERO_BD)) {
@@ -562,7 +556,12 @@ Pair.Swap.handler(async ({ event, context }) => {
         derivedAmountETH = derivedEthToken0.plus(derivedEthToken1).div(new BigDecimal(2));
       }
       
-      derivedAmountUSD = derivedAmountETH.times(bundle.ethPrice);
+      // Calculate derived amount in USD - handle case when ethPrice is 0
+      if (bundle.ethPrice && bundle.ethPrice.isGreaterThan(ZERO_BD)) {
+        derivedAmountUSD = derivedAmountETH.times(bundle.ethPrice);
+      } else {
+        derivedAmountUSD = ZERO_BD;
+      }
 
       // Update pair with all volume data
       pair = {
@@ -638,19 +637,89 @@ Pair.Swap.handler(async ({ event, context }) => {
       amountUSD: swapAmountUSD,
     };
 
-    // 10. Save all entities
+    // 10. Update pair volume data (matches subgraph exactly)
+    pair = {
+      ...pair,
+      volumeUSD: pair.volumeUSD.plus(trackedAmountUSD),
+      volumeToken0: pair.volumeToken0.plus(amount0Total),
+      volumeToken1: pair.volumeToken1.plus(amount1Total),
+      untrackedVolumeUSD: pair.untrackedVolumeUSD.plus(derivedAmountUSD),
+      txCount: pair.txCount + ONE_BI,
+    };
+
+    // 11. Save all entities
     context.Pair.set(pair);
     context.Swap.set(swap);
 
-    // 11. Update daily/hourly data
+    // 12. Update daily/hourly data
     if (bundle) {
-      await updatePairDayData(pair, event, context, String(chainId));
-      await updatePairHourData(pair, event, context, String(chainId));
-      await updateUniswapDayData(event, context, String(chainId));
-      await updateTokenDayData(finalToken0 || updatedToken0, event, context, String(chainId));
-      await updateTokenDayData(finalToken1 || updatedToken1, event, context, String(chainId));
-      await updateTokenHourData(finalToken0 || updatedToken0, event, context, String(chainId));
-      await updateTokenHourData(finalToken1 || updatedToken1, event, context, String(chainId));
+      const pairDayData = await updatePairDayData(pair, event, context, String(chainId));
+      const pairHourData = await updatePairHourData(pair, event, context, String(chainId));
+      const uniswapDayData = await updateUniswapDayData(event, context, String(chainId));
+      const token0DayData = await updateTokenDayData(finalToken0 || updatedToken0, event, context, String(chainId));
+      const token1DayData = await updateTokenDayData(finalToken1 || updatedToken1, event, context, String(chainId));
+
+      // Swap-specific updating for UniswapDayData
+      if (uniswapDayData) {
+        const updatedUniswapDayData = {
+          ...uniswapDayData,
+          dailyVolumeUSD: uniswapDayData.dailyVolumeUSD.plus(trackedAmountUSD),
+          dailyVolumeETH: uniswapDayData.dailyVolumeETH.plus(trackedAmountETH),
+          dailyVolumeUntracked: uniswapDayData.dailyVolumeUntracked.plus(derivedAmountUSD),
+          // Update total volume fields (matches subgraph exactly)
+          totalVolumeUSD: uniswapDayData.totalVolumeUSD.plus(trackedAmountUSD),
+          totalVolumeETH: uniswapDayData.totalVolumeETH.plus(trackedAmountETH),
+        };
+        context.UniswapDayData.set(updatedUniswapDayData);
+      }
+
+      // Swap-specific updating for PairDayData
+      if (pairDayData) {
+        const updatedPairDayData = {
+          ...pairDayData,
+          dailyVolumeToken0: pairDayData.dailyVolumeToken0.plus(amount0Total),
+          dailyVolumeToken1: pairDayData.dailyVolumeToken1.plus(amount1Total),
+          dailyVolumeUSD: pairDayData.dailyVolumeUSD.plus(trackedAmountUSD),
+        };
+        context.PairDayData.set(updatedPairDayData);
+      }
+
+      // Swap-specific updating for PairHourData
+      if (pairHourData) {
+        const updatedPairHourData = {
+          ...pairHourData,
+          hourlyVolumeToken0: pairHourData.hourlyVolumeToken0.plus(amount0Total),
+          hourlyVolumeToken1: pairHourData.hourlyVolumeToken1.plus(amount1Total),
+          hourlyVolumeUSD: pairHourData.hourlyVolumeUSD.plus(trackedAmountUSD),
+        };
+        context.PairHourData.set(updatedPairHourData);
+      }
+
+      // Swap-specific updating for Token0DayData
+      if (token0DayData) {
+        const updatedToken0DayData = {
+          ...token0DayData,
+          dailyVolumeToken: token0DayData.dailyVolumeToken.plus(amount0Total),
+          dailyVolumeETH: token0DayData.dailyVolumeETH.plus(amount0Total.times((finalToken0 || updatedToken0).derivedETH)),
+          dailyVolumeUSD: token0DayData.dailyVolumeUSD.plus(
+            amount0Total.times((finalToken0 || updatedToken0).derivedETH).times(bundle.ethPrice)
+          ),
+        };
+        context.TokenDayData.set(updatedToken0DayData);
+      }
+
+      // Swap-specific updating for Token1DayData
+      if (token1DayData) {
+        const updatedToken1DayData = {
+          ...token1DayData,
+          dailyVolumeToken: token1DayData.dailyVolumeToken.plus(amount1Total),
+          dailyVolumeETH: token1DayData.dailyVolumeETH.plus(amount1Total.times((finalToken1 || updatedToken1).derivedETH)),
+          dailyVolumeUSD: token1DayData.dailyVolumeUSD.plus(
+            amount1Total.times((finalToken1 || updatedToken1).derivedETH).times(bundle.ethPrice)
+          ),
+        };
+        context.TokenDayData.set(updatedToken1DayData);
+      }
     }
 
   } catch (error) {
@@ -709,9 +778,19 @@ Pair.Sync.handler(async ({ event, context }) => {
     const reserve0 = convertTokenToDecimal(event.params.reserve0, BigInt(token0.decimals));
     const reserve1 = convertTokenToDecimal(event.params.reserve1, BigInt(token1.decimals));
 
-    // 5. Update pair token prices
+    // 5. Update pair token prices (matches subgraph exactly)
     const token0Price = reserve1.isGreaterThan(ZERO_BD) ? reserve0.div(reserve1) : ZERO_BD;
     const token1Price = reserve0.isGreaterThan(ZERO_BD) ? reserve1.div(reserve0) : ZERO_BD;
+
+    // 5.5. Save pair immediately with new reserves and prices (matches subgraph exactly)
+    const updatedPairWithPrices: Pair_t = {
+      ...pair,
+      reserve0: reserve0,
+      reserve1: reserve1,
+      token0Price: token0Price,
+      token1Price: token1Price,
+    };
+    context.Pair.set(updatedPairWithPrices);
 
     // 6. Update ETH price now that reserves could have changed
     const bundleId = `${chainId}-1`;
@@ -723,7 +802,10 @@ Pair.Sync.handler(async ({ event, context }) => {
         ethPrice: newEthPrice,
       };
 
-      // 7. Recalculate derivedETH for both tokens
+      // Save bundle immediately (matches subgraph exactly)
+      context.Bundle.set(updatedBundle);
+
+      // 7. Recalculate derivedETH for both tokens (now with correct pair state)
       const token0DerivedETH = await findEthPerToken(updatedToken0, context, chainId);
       const token1DerivedETH = await findEthPerToken(updatedToken1, context, chainId);
 
@@ -737,6 +819,10 @@ Pair.Sync.handler(async ({ event, context }) => {
         ...updatedToken1,
         derivedETH: token1DerivedETH,
       };
+
+      // Save tokens immediately (matches subgraph exactly)
+      context.Token.set(finalToken0);
+      context.Token.set(finalToken1);
 
       // 9. Calculate derived values for pair
       const reserve0ETH = reserve0.times(token0DerivedETH);
@@ -753,19 +839,15 @@ Pair.Sync.handler(async ({ event, context }) => {
         trackedLiquidityETH = trackedLiquidityUSD.div(newEthPrice);
       }
 
-      // 12. Update pair with all calculated values
+      // 12. Update pair with all calculated values (using already-saved pair)
       const updatedPair: Pair_t = {
-        ...pair,
-        reserve0: reserve0,
-        reserve1: reserve1,
+        ...updatedPairWithPrices,
         reserveETH: reserveETH,
         reserveUSD: reserveUSD,
-        token0Price: token0Price,
-        token1Price: token1Price,
         trackedReserveETH: trackedLiquidityETH,
       };
 
-      // 13. Update factory with new liquidity totals
+      // 13. Update factory with new liquidity totals (matches subgraph exactly)
       const finalFactory: UniswapFactory_t = {
         ...updatedFactory,
         totalLiquidityETH: updatedFactory.totalLiquidityETH.plus(trackedLiquidityETH),
@@ -783,12 +865,11 @@ Pair.Sync.handler(async ({ event, context }) => {
         totalLiquidity: finalToken1.totalLiquidity.plus(reserve1),
       };
 
-      // 15. Save all entities
-      context.Bundle.set(updatedBundle);
-      context.Token.set(finalToken0WithLiquidity);
-      context.Token.set(finalToken1WithLiquidity);
+      // 15. Save all entities (matches subgraph order exactly)
       context.Pair.set(updatedPair);
       context.UniswapFactory.set(finalFactory);
+      context.Token.set(finalToken0WithLiquidity);
+      context.Token.set(finalToken1WithLiquidity);
     }
 
   } catch (error) {

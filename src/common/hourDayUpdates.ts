@@ -11,7 +11,6 @@ import {
   PairDayData_t,
   PairHourData_t,
   TokenDayData_t,
-  TokenHourData_t,
   Token_t,
   Bundle_t,
 } from "generated/src/db/Entities.gen";
@@ -189,109 +188,6 @@ export async function updateTokenDayData(
   return tokenDayData;
 }
 
-export async function updateTokenHourData(
-  token: any,
-  event: any,
-  context: any,
-  chainId: string
-): Promise<any> {
-  const bundle = await context.Bundle.get(`${chainId}-1`);
-  if (!bundle) {
-    throw new Error('Bundle not found for updateTokenHourData');
-  }
 
-  const timestamp = Number(event.block.timestamp);
-  const hourIndex = Math.floor(timestamp / 3600);
-  const hourStartUnix = hourIndex * 3600;
-  const tokenHourID = `${chainId}-${token.id}-${hourIndex}`;
-  let tokenHourData = await context.TokenHourData.get(tokenHourID);
-  const tokenPrice = token.derivedETH * bundle.ethPrice;
-  let isNew = false;
 
-  if (!tokenHourData) {
-    tokenHourData = {
-      id: tokenHourID,
-      periodStartUnix: hourStartUnix,
-      token_id: token.id,
-      volume: ZERO_BD,
-      volumeUSD: ZERO_BD,
-      untrackedVolumeUSD: ZERO_BD,
-      feesUSD: ZERO_BD,
-      openPrice: tokenPrice,
-      highPrice: tokenPrice,
-      lowPrice: tokenPrice,
-      closePrice: tokenPrice,
-      priceUSD: tokenPrice,
-      totalValueLocked: ZERO_BD,
-      totalValueLockedUSD: ZERO_BD,
-    };
 
-    const tokenHourArray = [...token.hourArray, hourIndex];
-    const updatedToken = {
-      ...token,
-      hourArray: tokenHourArray,
-    };
-    context.Token.set(updatedToken);
-    isNew = true;
-  }
-
-  if (tokenPrice > tokenHourData.highPrice) {
-    tokenHourData.highPrice = tokenPrice;
-  }
-
-  if (tokenPrice < tokenHourData.lowPrice) {
-    tokenHourData.lowPrice = tokenPrice;
-  }
-
-  tokenHourData.closePrice = tokenPrice;
-  tokenHourData.priceUSD = tokenPrice;
-  context.TokenHourData.set(tokenHourData);
-
-  if (token.lastHourArchived === BigInt(0) && token.lastHourRecorded === BigInt(0)) {
-    const updatedToken = {
-      ...token,
-      lastHourRecorded: BigInt(hourIndex),
-      lastHourArchived: BigInt(hourIndex - 1),
-    };
-    context.Token.set(updatedToken);
-  }
-
-  if (isNew) {
-    const lastHourArchived = Number(token.lastHourArchived);
-    const stop = hourIndex - 768;
-    if (stop > lastHourArchived) {
-      await archiveHourData(token, stop, context, chainId);
-    }
-    const updatedToken = {
-      ...token,
-      lastHourRecorded: BigInt(hourIndex),
-    };
-    context.Token.set(updatedToken);
-  }
-
-  return tokenHourData;
-}
-
-async function archiveHourData(
-  token: any,
-  stop: number,
-  context: any,
-  chainId: string
-): Promise<void> {
-  const length = token.hourArray.length;
-  const array = [...token.hourArray];
-  const modArray = [...token.hourArray];
-
-  for (let i = 0; i < length; i++) {
-    if (array[i] <= stop) {
-      modArray.splice(i, 1);
-    }
-  }
-
-  const updatedToken = {
-    ...token,
-    hourArray: modArray,
-    lastHourArchived: BigInt(stop),
-  };
-  context.Token.set(updatedToken);
-}
