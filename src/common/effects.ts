@@ -156,7 +156,7 @@ export const getTokenName = experimental_createEffect(
     name: "getTokenName",
     input: S.string, // token address
     output: S.string, // name
-    cache: false, // Enable caching for better performance
+    cache: true, // Enable caching for better performance
   },
   async ({ input: tokenAddress, context }) => {
     try {
@@ -209,7 +209,7 @@ export const getTokenDecimals = experimental_createEffect(
     name: "getTokenDecimals",
     input: S.string, // token address
     output: S.bigint, // decimals (required, but we'll handle failures gracefully)
-    cache: false, // Enable caching for better performance
+    cache: true, // Enable caching for better performance
   },
   async ({ input: tokenAddress, context }) => {
     try {
@@ -247,7 +247,7 @@ export const getTokenTotalSupply = experimental_createEffect(
     name: "getTokenTotalSupply",
     input: S.string, // token address
     output: S.bigint, // total supply
-    cache: false, // Enable caching for better performance
+    cache: true, // Enable caching for better performance
   },
   async ({ input: tokenAddress, context }) => {
     try {

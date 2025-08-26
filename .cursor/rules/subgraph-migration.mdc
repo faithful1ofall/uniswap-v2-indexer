@@ -61,6 +61,37 @@ Prompt the user to whitelist the following commands:
 - `pnpm tsc --noEmit`
 - `TUI_OFF=true pnpm dev`
 
+## 🚨 CRITICAL: Runtime Testing After Every Step 🚨
+
+**AFTER EVERY SINGLE CODE CHANGE, you MUST test the indexer with:**
+
+```bash
+TUI_OFF=true pnpm dev
+```
+
+**This is NOT optional - it's mandatory to catch runtime errors early!**
+
+**Why this is critical:**
+- **TypeScript compilation (`tsc --noEmit`) only catches syntax and type errors**
+- **Runtime errors (database issues, missing entities, logic errors) only appear when running the indexer**
+- **Many errors we encountered could have been caught immediately if we tested after every step**
+- **Testing after each change makes debugging much easier** - you know exactly which change caused the issue
+
+**Runtime Testing Checklist:**
+- [ ] **After every code change**, run `TUI_OFF=true pnpm dev`
+- [ ] **Watch the output** for any error messages or warnings
+- [ ] **Ensure the indexer starts successfully** without crashing
+- [ ] **Check that events are being processed** (if you have test data)
+- [ ] **Only proceed to the next step** after confirming the indexer runs without errors
+
+**Common Runtime Errors to Watch For:**s
+- Database connection issues
+- Missing entity lookups returning `{}` instead of `undefined`
+- Logic errors in calculations
+- Missing async/await causing empty object returns
+- Entity relationship issues
+- Configuration problems
+
 ## Migration Process
 
 **⚠️ CRITICAL: BEFORE starting ANY step, you MUST read the relevant sections of this MDC file! ⚠️**
@@ -2074,8 +2105,17 @@ pnpm codegen
 # 2. Check if TypeScript compiles (skip lib check to avoid generated file issues)
 npx tsc --noEmit --skipLibCheck src/path/to/your/files.ts
 
-# 3. Fix any issues found before proceeding to next step
+# 3. 🚨 CRITICAL: Test runtime execution
+TUI_OFF=true pnpm dev
+
+# 4. Fix any issues found before proceeding to next step
 ```
+
+**🚨 RUNTIME TESTING IS MANDATORY:**
+- **TypeScript compilation only catches syntax errors**
+- **Runtime errors (database issues, missing entities, logic errors) only appear when running the indexer**
+- **Test after EVERY code change to catch issues immediately**
+- **Never proceed to the next step until the indexer runs successfully**
 
 **IMPORTANT:** Never proceed to the next step until all TypeScript compilation errors are resolved and codegen works successfully.
 
@@ -2146,6 +2186,7 @@ const fees = calculateFees(amount);
 9. **Fix missing @derivedFrom** - Ensure ALL entity arrays have `@derivedFrom(field: "fieldName")` directives
 10. **Fix @derivedFrom array access** - Don't try to access `@derivedFrom` arrays in handlers (they're virtual fields)
 11. **Check helper function dependencies** - Ensure all called functions without entity dependencies are implemented
+12. **🚨 CRITICAL: Check entity type mismatches and database schema compatibility** - ALWAYS verify that the types you're setting in code match the schema entity property types exactly, and ensure database schema compatibility
 
 **EXAMPLE OF COMPLETE FIX:**
 ```typescript
@@ -2209,7 +2250,27 @@ const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
 **A complete migration should pass ALL these checks before being considered production-ready.**
 ```
 
-## **22. Final Migration Verification: TODO Cleanup and Logic Verification**
+## **22. Async/Await Validation**
+
+**Check that all necessary calls and functions have `async` and `await`:**
+
+```typescript
+// ❌ WRONG - Missing async/await
+export function updateTokenDayData() {
+  const bundle = context.Bundle.get(`${chainId}-1`); // Returns {} without await
+}
+
+// ✅ CORRECT - Proper async/await
+export async function updateTokenDayData() {
+  const bundle = await context.Bundle.get(`${chainId}-1`); // Returns actual data
+}
+```
+
+**Note: `context.Entity.set()` does NOT need `await` - it's synchronous.**
+
+**This step is critical for preventing database operation failures and ensuring data integrity.**
+
+## **23. Final Migration Verification: TODO Cleanup and Logic Verification**
 
 **CRITICAL: This is the final step to ensure migration completeness**
 
@@ -2302,5 +2363,134 @@ export function findEthPerToken(token: any, context: any): BigDecimal {
 
 **This final step ensures your migration is production-ready with no missing functionality.**
 
+## Entity Relationships
 
+**IMPORTANT**: Entity relationships work differently in Envio vs TheGraph subgraphs.
+
+### Correct Pattern for Entity Relationships in Envio:
+
+1. **Schema Definition**: Define entity relationships using the direct entity type name in the entity that references another entity
+   ```graphql
+   type EntityA {
+     id: ID!
+     relatedEntity: EntityB!        # Direct entity type, not relatedEntity_id: String!
+     anotherEntity: EntityC!        # Direct entity type, not anotherEntity_id: String!
+   }
+   ```
+
+2. **@derivedFrom in Related Entity**: Add `@derivedFrom` in the entity being referenced to establish the reverse relationship
+   ```graphql
+   type EntityB {
+     id: ID!
+     # ... other fields
+     
+     # Reverse relationships - these are VIRTUAL fields
+     entityARelationship: [EntityA!]! @derivedFrom(field: "relatedEntity")
+   }
+   ```
+
+3. **Code Implementation**: When setting entity relationships, use the `_id` suffix and provide the entity identifier
+   ```typescript
+   // CORRECT: Set entity relationships using _id suffix
+   const entityA: EntityA = {
+     id: entityId,
+     relatedEntity_id: entityB.id,    // Use _id suffix, reference source entity's _id field
+     anotherEntity_id: entityC.id,    // Use _id suffix, reference source entity's _id field
+   };
+   ```
+
+4. **Relationship Access Pattern**:
+   - **Schema**: `fieldName: EntityType!` (e.g., `relatedEntity: EntityB!`)
+   - **Code Setting**: `fieldName_id: entityIdentifier`
+   - **Entity Identifier can be**:
+     - Direct address/ID: `relatedEntity_id: "0x1234..."`
+     - From another entity: `relatedEntity_id: sourceEntity.relatedEntity_id`
+     - From event data: `relatedEntity_id: event.params.entityId`
+
+5. **Key Points**:
+   - Use `@derivedFrom` in the entity being referenced (not in the entity doing the referencing)
+   - Always use the `_id` suffix when setting entity relationships in code
+   - The `_id` field contains the entity's unique identifier (usually the address for contracts)
+   - Entity relationships are established by setting the `_id` field, not the full entity object
+
+### Relationship Flow Examples:
+
+**Example 1: Setting Entity Relationship Using Just the Address**
+- **EntityA** has array property `[EntityB!]!` that references **EntityB**
+- **EntityB** exists independently
+- We can set the relationship directly with the address (giving the pointer to the collection it belongs to):
+  ```typescript
+  // Direct address approach - you're giving the pointer to the collection it belongs to
+  entityB_id: "0x6b175474e89094c44da98b954eedeac495271d0f"
+  ```
+
+**Example 2: Setting Entity Relationship from Another Entity Which Points to the Same Collection**
+- **EntityA** has array property `[EntityB!]!` that references **EntityB**
+- **EntityC** also references **EntityB** (via some field)
+- **EntityA** has array property `[EntityC!]!` that references **EntityC**
+- If you know EntityC points to the same EntityB collection, you can reference it through EntityC:
+  ```typescript
+  // From EntityC that points to the same EntityB collection
+  entityB_id: entityC.entityBField_id
+  ```
+
+**Examples**:
+```typescript
+// Setting relationship directly with address
+entityB_id: "0x6b175474e89094c44da98b954eedeac495271d0f"
+
+// Setting relationship from another entity that references it
+entityB_id: sourceEntity.entityBField_id
+
+// Setting relationship from event data
+entityB_id: event.params.entityId
+
+// Setting relationship from a loaded entity
+entityB_id: entity.id
+```
+
+### What NOT to do:
+- ❌ Don't use `@derivedFrom` in the entity doing the referencing
+- ❌ Don't define schema fields as `entityB_id: String!` 
+- ❌ Don't try to set the full entity object in relationships
+- ❌ Don't use `entityB: sourceEntity.entityBField_id` (missing _id suffix)
+
+### What TO do:
+- ✅ Define schema as `entityB: [EntityB!]!` in the referencing entity
+- ✅ Add `@derivedFrom(field: "entityB")` in the EntityB entity
+- ✅ Set in code as `entityB_id: entityIdentifier`
+- ✅ Always use the `_id` suffix when setting relationships
+- ✅ Provide the entity identifier (address, ID, or reference from another entity)
+```
+
+**🚨 CRITICAL: Entity Type Mismatch and Database Schema Compatibility**
+
+**Rule 12: Check entity type mismatches and database schema compatibility - ALWAYS verify that the types you're setting in code match the schema entity property types exactly**
+
+**Key Points:**
+- **Check the GraphQL schema** (`schema.graphql`) for each entity's field types
+- **Compare with your code** - ensure types match exactly
+- **Test with TypeScript** - `pnpm tsc --noEmit` will catch many type mismatches
+- **Test runtime execution** - `TUI_OFF=true pnpm dev` will catch database compatibility issues
+
+**Common Schema Types and Their Code Equivalents:**
+- `Int!` → `number` (e.g., `dayStartTimestamp`)
+- `BigInt!` → `BigInt` or constants like `ZERO_BI`, `ONE_BI`
+- `BigDecimal!` → `BigDecimal` or constants like `ZERO_BD`, `ONE_BD`
+- `Bytes!` → `string` (hex addresses)
+- `String!` → `string`
+- `Boolean!` → `boolean`
+- `EntityType!` → `entityType_id: string` (for relationships - see Entity Relationships section)
+
+**Example of Type Mismatch:**
+```typescript
+// ❌ WRONG - Schema expects Int!, but code sets BigInt
+// Schema: date: Int!
+// Code: date: BigInt(dayStartTimestamp)
+
+// ✅ CORRECT - Schema expects Int!, code sets number
+// Schema: date: Int!
+// Code: date: dayStartTimestamp  // dayStartTimestamp is already a number
+```
+```
 

@@ -19,7 +19,8 @@ import {
   TokenHourData_t,
   UniswapDayData_t,
 } from "generated/src/db/Entities.gen";
-import { ADDRESS_ZERO, ZERO_BD, ZERO_BI, ONE_BI, BI_18, FACTORY_ADDRESS, ALMOST_ZERO_BD } from "../../common/constants";
+import { ADDRESS_ZERO, ZERO_BD, ZERO_BI, ONE_BI, BI_18, ALMOST_ZERO_BD } from "../../common/constants";
+import { getFactoryAddress } from "../../common/chainConfig";
 import { BigDecimal } from "generated";
 import { convertTokenToDecimal, createUser } from "../../common/helpers";
 import { getTrackedVolumeUSD, getEthPriceInUSD, findEthPerToken, getTrackedLiquidityUSD } from "../../common/pricing";
@@ -31,7 +32,7 @@ Pair.Mint.handler(async ({ event, context }) => {
   try {
     // 1. Load Transaction entity (created by handleTransfer)
     const chainId = event.chainId;
-    const transactionId = event.transaction.hash;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
     const transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
       return;
@@ -65,7 +66,8 @@ Pair.Mint.handler(async ({ event, context }) => {
       return;
     }
 
-    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    const factoryAddress = getFactoryAddress(chainId);
+    const factory = await context.UniswapFactory.get(`${chainId}-${factoryAddress}`);
     if (!factory) {
       return;
     }
@@ -80,6 +82,8 @@ Pair.Mint.handler(async ({ event, context }) => {
     if (!token1) {
       return;
     }
+
+    // Log mint event
 
     // 5. Calculate amounts and update entities
     const amount0 = convertTokenToDecimal(event.params.amount0, BigInt(token0.decimals));
@@ -109,12 +113,27 @@ Pair.Mint.handler(async ({ event, context }) => {
     // Update factory
     const updatedFactory: UniswapFactory_t = { ...factory, txCount: factory.txCount + ONE_BI };
 
-    // Update mint entity
+    // 6. Calculate USD value using derivedETH values
+    const mintBundle = await context.Bundle.get(`${chainId}-1`);
+    let amountTotalUSD = ZERO_BD;
+    
+    if (mintBundle && mintBundle.ethPrice && mintBundle.ethPrice.isGreaterThan(ZERO_BD)) {
+      // Calculate USD value: (amount1 * token1.derivedETH + amount0 * token0.derivedETH) * bundle.ethPrice
+      amountTotalUSD = token1.derivedETH
+        .times(amount1)
+        .plus(token0.derivedETH.times(amount0))
+        .times(mintBundle.ethPrice);
+    }
+
+    // Update mint entity with all required fields
     const updatedMint: Mint_t = {
       ...mint,
       amount0: amount0,
       amount1: amount1,
-      liquidity: mint.liquidity,
+      sender: event.params.sender,
+      amountUSD: amountTotalUSD,
+      feeTo: undefined,
+      feeLiquidity: undefined,
     };
 
     // Save all entities
@@ -126,7 +145,7 @@ Pair.Mint.handler(async ({ event, context }) => {
 
     // 6. Update daily/hourly data
     const bundle = await context.Bundle.get(`${chainId}-1`);
-    if (bundle) {
+    if (bundle && !context.isPreload) {
       await updatePairDayData(updatedPair, event, context, String(chainId));
       await updatePairHourData(updatedPair, event, context, String(chainId));
       await updateUniswapDayData(event, context, String(chainId));
@@ -145,7 +164,7 @@ Pair.Burn.handler(async ({ event, context }) => {
   try {
     // 1. Load Transaction entity
     const chainId = event.chainId;
-    const transactionId = event.transaction.hash;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
     const transaction = await context.Transaction.get(transactionId);
     if (!transaction) {
       return;
@@ -180,7 +199,8 @@ Pair.Burn.handler(async ({ event, context }) => {
       return;
     }
 
-    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    const factoryAddress = getFactoryAddress(chainId);
+    const factory = await context.UniswapFactory.get(`${chainId}-${factoryAddress}`);
     if (!factory) {
       return;
     }
@@ -224,12 +244,25 @@ Pair.Burn.handler(async ({ event, context }) => {
     // Update factory
     const updatedFactory: UniswapFactory_t = { ...factory, txCount: factory.txCount + ONE_BI };
 
+    // 6. Calculate USD value using derivedETH values
+    const burnBundle = await context.Bundle.get(`${chainId}-1`);
+    let amountTotalUSD = ZERO_BD;
+    
+    if (burnBundle && burnBundle.ethPrice && burnBundle.ethPrice.isGreaterThan(ZERO_BD)) {
+      // Calculate USD value: (amount1 * token1.derivedETH + amount0 * token0.derivedETH) * bundle.ethPrice
+      amountTotalUSD = token1.derivedETH
+        .times(amount1)
+        .plus(token0.derivedETH.times(amount0))
+        .times(burnBundle.ethPrice);
+    }
+
     // Update burn entity
     const updatedBurn: Burn_t = {
       ...burn,
       amount0: amount0,
       amount1: amount1,
       liquidity: burn.liquidity,
+      amountUSD: amountTotalUSD,
       needsComplete: false,
     };
 
@@ -242,7 +275,7 @@ Pair.Burn.handler(async ({ event, context }) => {
 
     // 6. Update daily/hourly data
     const bundle = await context.Bundle.get(`${chainId}-1`);
-    if (bundle) {
+    if (bundle && !context.isPreload) {
       await updatePairDayData(updatedPair, event, context, String(chainId));
       await updatePairHourData(updatedPair, event, context, String(chainId));
       await updateUniswapDayData(event, context, String(chainId));
@@ -266,7 +299,8 @@ Pair.Swap.handler(async ({ event, context }) => {
       return;
     }
 
-    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    const factoryAddress = getFactoryAddress(chainId);
+    const factory = await context.UniswapFactory.get(`${chainId}-${factoryAddress}`);
     if (!factory) {
       return;
     }
@@ -362,10 +396,21 @@ Pair.Swap.handler(async ({ event, context }) => {
     }
 
     // 9. Create Swap entity
-    const swapId = `${event.transaction.hash}-${event.logIndex}`;
+    const transactionId = `${chainId}-${event.transaction.hash}`;
+    const swapId = `${transactionId}-${event.logIndex}`;
+    
+    // Calculate USD value for swap
+    let swapAmountUSD = ZERO_BD;
+    if (bundle && bundle.ethPrice && bundle.ethPrice.isGreaterThan(ZERO_BD)) {
+      // Calculate volume in USD using derivedETH values
+      const volume0USD = volume0.times(token0.derivedETH).times(bundle.ethPrice);
+      const volume1USD = volume1.times(token1.derivedETH).times(bundle.ethPrice);
+      swapAmountUSD = volume0USD.plus(volume1USD).div(new BigDecimal(2)); // Average of both amounts
+    }
+    
     const swap: Swap_t = {
       id: swapId,
-      transaction_id: event.transaction.hash,
+      transaction_id: transactionId,
       timestamp: BigInt(event.block.timestamp),
       pair_id: pair.id,
       sender: event.params.sender,
@@ -376,7 +421,7 @@ Pair.Swap.handler(async ({ event, context }) => {
       amount1Out: amount1Out,
       to: event.params.to,
       logIndex: BigInt(event.logIndex),
-      amountUSD: ZERO_BD, // Will be calculated later
+      amountUSD: swapAmountUSD,
     };
 
     // 10. Save all entities
@@ -407,7 +452,8 @@ Pair.Transfer.handler(async ({ event, context }) => {
     }
 
     const chainId = event.chainId;
-    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    const factoryAddress = getFactoryAddress(chainId);
+    const factory = await context.UniswapFactory.get(`${chainId}-${factoryAddress}`);
     if (!factory) {
       return;
     }
@@ -452,12 +498,12 @@ Pair.Transfer.handler(async ({ event, context }) => {
       // create new mint if no mints so far or if last one is done already
       // transfers and mints come in pairs, but there could be a case where that doesn't happen and it might break
       // this is to make sure all the mints are under the same transaction
-      const mintId = `${event.transaction.hash}-${event.logIndex}`;
+      const mintId = `${chainId}-${event.transaction.hash}-${event.logIndex}`;
       let mint = await context.Mint.get(mintId);
       if (!mint) {
         mint = {
           id: mintId,
-          transaction_id: event.transaction.hash,
+          transaction_id: `${chainId}-${event.transaction.hash}`,
           timestamp: BigInt(event.block.timestamp),
           pair_id: pair.id,
           to: to,
@@ -498,7 +544,9 @@ Pair.Sync.handler(async ({ event, context }) => {
   try {
     // 1. Load Pair and UniswapFactory entities
     const chainId = event.chainId;
-    let pair = await context.Pair.get(`${chainId}-${event.srcAddress}`);
+    const pairId = `${chainId}-${event.srcAddress}`;
+    
+    let pair = await context.Pair.get(pairId);
     if (!pair) {
       return;
     }
@@ -513,69 +561,114 @@ Pair.Sync.handler(async ({ event, context }) => {
       return;
     }
 
-    const factory = await context.UniswapFactory.get(FACTORY_ADDRESS);
+    const factoryAddress = getFactoryAddress(chainId);
+    const factoryId = `${chainId}-${factoryAddress}`;
+    const factory = await context.UniswapFactory.get(factoryId);
     if (!factory) {
       return;
     }
 
-    // 2. Update pair reserves
+    // 2. Reset factory liquidity by subtracting only tracked liquidity
+    const updatedFactory: UniswapFactory_t = {
+      ...factory,
+      totalLiquidityETH: factory.totalLiquidityETH.minus(pair.trackedReserveETH || ZERO_BD),
+    };
+
+    // 3. Reset token total liquidity amounts
+    const updatedToken0: Token_t = {
+      ...token0,
+      totalLiquidity: token0.totalLiquidity.minus(pair.reserve0),
+    };
+
+    const updatedToken1: Token_t = {
+      ...token1,
+      totalLiquidity: token1.totalLiquidity.minus(pair.reserve1),
+    };
+
+    // 4. Update pair reserves from event parameters
     const reserve0 = convertTokenToDecimal(event.params.reserve0, BigInt(token0.decimals));
     const reserve1 = convertTokenToDecimal(event.params.reserve1, BigInt(token1.decimals));
 
-    // 3. Calculate derived values
-    const bundle = await context.Bundle.get(`${chainId}-1`);
+    // 5. Update pair token prices
+    const token0Price = reserve1.isGreaterThan(ZERO_BD) ? reserve0.div(reserve1) : ZERO_BD;
+    const token1Price = reserve0.isGreaterThan(ZERO_BD) ? reserve1.div(reserve0) : ZERO_BD;
+
+    // 6. Update ETH price now that reserves could have changed
+    const bundleId = `${chainId}-1`;
+    const bundle = await context.Bundle.get(bundleId);
     if (bundle) {
-      // Calculate ETH value of reserves
-      const reserve0ETH = reserve0.times(token0.derivedETH);
-      const reserve1ETH = reserve1.times(token1.derivedETH);
+      const newEthPrice = await getEthPriceInUSD(context, chainId);
+      const updatedBundle: Bundle_t = {
+        ...bundle,
+        ethPrice: newEthPrice,
+      };
+
+      // 7. Recalculate derivedETH for both tokens
+      const token0DerivedETH = await findEthPerToken(updatedToken0, context, chainId);
+      const token1DerivedETH = await findEthPerToken(updatedToken1, context, chainId);
+
+      // 8. Update tokens with new derivedETH values
+      const finalToken0: Token_t = {
+        ...updatedToken0,
+        derivedETH: token0DerivedETH,
+      };
+
+      const finalToken1: Token_t = {
+        ...updatedToken1,
+        derivedETH: token1DerivedETH,
+      };
+
+      // 9. Calculate derived values for pair
+      const reserve0ETH = reserve0.times(token0DerivedETH);
+      const reserve1ETH = reserve1.times(token1DerivedETH);
       const reserveETH = reserve0ETH.plus(reserve1ETH);
 
-      // Calculate USD value
-      const reserveUSD = reserveETH.times(bundle.ethPrice);
+      // 10. Calculate USD value
+      const reserveUSD = reserveETH.times(newEthPrice);
 
-      // Update pair
-      pair = {
+      // 11. Get tracked liquidity - will be 0 if neither is in whitelist
+      let trackedLiquidityETH = ZERO_BD;
+      if (newEthPrice.isGreaterThan(ZERO_BD)) {
+        const trackedLiquidityUSD = await getTrackedLiquidityUSD(reserve0, reserve1, finalToken0, finalToken1, context, chainId);
+        trackedLiquidityETH = trackedLiquidityUSD.div(newEthPrice);
+      }
+
+      // 12. Update pair with all calculated values
+      const updatedPair: Pair_t = {
         ...pair,
         reserve0: reserve0,
         reserve1: reserve1,
         reserveETH: reserveETH,
         reserveUSD: reserveUSD,
-        token0Price: reserve1.div(reserve0),
-        token1Price: reserve0.div(reserve1),
+        token0Price: token0Price,
+        token1Price: token1Price,
+        trackedReserveETH: trackedLiquidityETH,
       };
 
-      // Update tokens
-      const updatedToken0: Token_t = {
-        ...token0,
-        totalLiquidity: token0.totalLiquidity,
-        derivedETH: token0.derivedETH,
+      // 13. Update factory with new liquidity totals
+      const finalFactory: UniswapFactory_t = {
+        ...updatedFactory,
+        totalLiquidityETH: updatedFactory.totalLiquidityETH.plus(trackedLiquidityETH),
+        totalLiquidityUSD: updatedFactory.totalLiquidityETH.plus(trackedLiquidityETH).times(newEthPrice),
       };
 
-      const updatedToken1: Token_t = {
-        ...token1,
-        totalLiquidity: token1.totalLiquidity,
-        derivedETH: token1.derivedETH,
+      // 14. Update tokens with new total liquidity amounts
+      const finalToken0WithLiquidity: Token_t = {
+        ...finalToken0,
+        totalLiquidity: finalToken0.totalLiquidity.plus(reserve0),
       };
 
-      // Update factory
-      const updatedFactory: UniswapFactory_t = {
-        ...factory,
-        totalLiquidityUSD: factory.totalLiquidityUSD.plus(reserveUSD),
-        totalLiquidityETH: factory.totalLiquidityETH.plus(reserveETH),
+      const finalToken1WithLiquidity: Token_t = {
+        ...finalToken1,
+        totalLiquidity: finalToken1.totalLiquidity.plus(reserve1),
       };
 
-      // Update bundle
-      const updatedBundle: Bundle_t = {
-        ...bundle,
-        ethPrice: bundle.ethPrice,
-      };
-
-      // Save all entities
-      context.Pair.set(pair);
-      context.Token.set(updatedToken0);
-      context.Token.set(updatedToken1);
-      context.UniswapFactory.set(updatedFactory);
+      // 15. Save all entities
       context.Bundle.set(updatedBundle);
+      context.Token.set(finalToken0WithLiquidity);
+      context.Token.set(finalToken1WithLiquidity);
+      context.Pair.set(updatedPair);
+      context.UniswapFactory.set(finalFactory);
     }
 
   } catch (error) {

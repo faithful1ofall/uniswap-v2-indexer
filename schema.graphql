@@ -237,21 +237,13 @@ type PairHourData {
 type PairDayData {
   id: ID!
   date: Int!
-  pairAddress: String!
+  pairAddress: Bytes!
   token0: Token!
   token1: Token!
-
-  # reserves
   reserve0: BigDecimal!
   reserve1: BigDecimal!
-
-  # total supply for LP historical returns
-  totalSupply: BigDecimal
-
-  # derived liquidity
+  totalSupply: BigDecimal!
   reserveUSD: BigDecimal!
-
-  # volume stats
   dailyVolumeToken0: BigDecimal!
   dailyVolumeToken1: BigDecimal!
   dailyVolumeUSD: BigDecimal!
