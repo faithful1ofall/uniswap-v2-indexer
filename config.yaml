@@ -28,12 +28,15 @@ contracts:
         - hash
 networks:
 - id: 5042002
+  hypersync_config:
+      url: https://5042002.hypersync.xyz
   start_block: 0
   contracts:
   - name: Factory
     address:
     - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5
   - name: Pair
+  
     # No address field - Pair contracts are created dynamically by Factory
 # - id: 1  # Ethereum Mainnet
 #   start_block: 10000834  # Original subgraph start block
