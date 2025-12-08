@@ -28,8 +28,8 @@ contracts:
         - hash
 networks:
 - id: 5042002
-  hypersync_config:
-      url: https://5042002.hypersync.xyz
+  rpc_config:
+    url: https://5042002.hypersync.xyz/5b34c8bd-1f67-4048-8013-886146900a2c
   start_block: 0
   contracts:
   - name: Factory
