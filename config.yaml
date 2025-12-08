@@ -27,12 +27,12 @@ contracts:
       transaction_fields:
         - hash
 networks:
-- id: 10143
+- id: 5042002
   start_block: 0
   contracts:
   - name: Factory
     address:
-    - 0x733e88f248b742db6c14c0b1713af5ad7fdd59d0
+    - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5
   - name: Pair
     # No address field - Pair contracts are created dynamically by Factory
 # - id: 1  # Ethereum Mainnet
