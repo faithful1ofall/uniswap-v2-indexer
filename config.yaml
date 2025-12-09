@@ -29,7 +29,7 @@ contracts:
         
 networks:
 - id: 5042002  # Arc Testnet
-  start_block: 0
+  start_block: 13051475
   rpc_config:
     url: https://rpc.testnet.arc.network
   contracts:
