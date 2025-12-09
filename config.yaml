@@ -26,9 +26,12 @@ contracts:
     field_selection:
       transaction_fields:
         - hash
+        
 networks:
 - id: 5042002
   start_block: 0
+  hypersync_config:
+    url: "https://5042002.hypersync.xyz"    # example only
   contracts:
   - name: Factory
     address:
