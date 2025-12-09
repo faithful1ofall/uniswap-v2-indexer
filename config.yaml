@@ -28,15 +28,17 @@ contracts:
         - hash
         
 networks:
-- id: 5042002
+- id: 5042002  # Arc Testnet
   start_block: 0
-  hypersync_config:
-    url: "https://5042002.hypersync.xyz"    # example only
+  rpc_config:
+    url: https://rpc.testnet.arc.network
   contracts:
   - name: Factory
     address:
-    - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5
+    - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5  # ArcFlow V25 Factory
   - name: Pair
+    # No address field - Pair contracts are created dynamically by Factory
+
   
     # No address field - Pair contracts are created dynamically by Factory
 # - id: 1  # Ethereum Mainnet
