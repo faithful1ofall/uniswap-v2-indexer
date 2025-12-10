@@ -26,90 +26,15 @@ contracts:
     field_selection:
       transaction_fields:
         - hash
-        
 networks:
-- id: 5042002  # Arc Testnet
+- id: 5042002
+  hypersync_config: 
+    url: https://5042002.hypersync.xyz
   start_block: 13051475
-  rpc_config:
-    url: https://rpc.testnet.arc.network
   contracts:
   - name: Factory
     address:
-    - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5  # ArcFlow V25 Factory
+    - 0xd67F63A4F26a497b364d1C82e6747Aec8B5743a5
   - name: Pair
-    # No address field - Pair contracts are created dynamically by Factory
-
-  
-    # No address field - Pair contracts are created dynamically by Factory
-# - id: 1  # Ethereum Mainnet
-#   start_block: 10000834  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
-#   - name: Pair
-#     # No address field - Pair contracts are created dynamically by Factory
-# - id: 10  # Optimism
-#   start_block: 112197986  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x0c3c1c532F1e39EdF36BE9Fe0bE1410313E074Bf
-# - id: 56  # BSC
-#   start_block: 33496018  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6
-#   - name: Pair
-# - id: 130  # BSC Testnet
-#   start_block: 0  # Testnet - no specific start block needed
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x1F98400000000000000000000000000000000002
-# - id: 137  # Polygon (Matic)
-#   start_block: 49948178  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32
-# - id: 480  # BSC Testnet
-#   start_block: 0  # Testnet - no specific start block needed
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
-# - id: 1868  # BSC Testnet
-#   start_block: 0  # Testnet - no specific start block needed
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x97FeBbC2AdBD5644ba22736E962564B23F5828CE
-# - id: 8453  # Base
-#   start_block: 6601915  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6
-# - id: 42161  # Arbitrum One
-#   start_block: 150442611  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9
-# - id: 43114  # Avalanche
-#   start_block: 37767795  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x9Ad6C38BE94206cA50bb0d90783181662f0Cfa10
-# - id: 81457  # Blast Mainnet
-#   start_block: 399405  # Original subgraph start block
-#   contracts:
-#   - name: Factory
-#     address:
-#     - 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
-# Performance optimizations
-unordered_multichain_mode: false
+unordered_multichain_mode: true
 preload_handlers: true
